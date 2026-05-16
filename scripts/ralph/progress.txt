@@ -13,6 +13,10 @@
 - pt-BR formatters live in `src/lib/formatters/`: `currency.ts` (`formatBRL`), `percentage.ts` (`formatPercentage` / `parsePercentage`), `number.ts` (`formatInteger` / `formatMonths`). Reuse these everywhere — never re-roll a `toLocaleString` call inline.
 - `Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" })` returns the symbol joined to the number with U+00A0 (and sometimes U+202F on newer ICU). The formatters strip those to a plain ASCII space so tests, snapshots, and Excel export are deterministic — keep that normalization step if you fork them.
 - `formatPercentage` expects the value in **percent units** (e.g. `1.25` → `"1,25%"`), not a fraction. Internally it divides by 100 before passing to the percent-style Intl formatter. `parsePercentage` is the inverse and tolerates an optional `%`, whitespace, and pt-BR thousand/decimal separators.
+- Decimal.js global precision/rounding is configured **once** in `src/core/finance/financial-types.ts` (`Decimal.set({ precision: 30, rounding: ROUND_HALF_EVEN })`). Any new finance module must import from `./financial-types` (or transitively, e.g. via `price-calculator`) so the side-effect runs before arithmetic.
+- Money rounding helper: `roundMoney(value: Decimal)` in `financial-types.ts` rounds to 2dp using `ROUND_HALF_EVEN`. Use it for every monetary cell that gets recorded into a `ScheduleRow` — never call `.toDecimalPlaces` directly inside engine code so the rounding mode stays consistent.
+- `Decimal#toString()` strips trailing zeros (e.g. `new Decimal("10100.00").toString() === "10100"`). For 2dp display assertions use `toFixed(2)` or compare with `.equals()`. Prefer `.equals(n)` in tests over string equality.
+- Schedule rounding convention: round the base PRICE installment **once** at start, round each row's interest to 2dp from the running balance, derive amortization as `installment - interest`, and let the **final** row's amortization equal the remaining balance (final installment = balance + final-interest, may differ from base installment). This guarantees `last.balance === 0` exactly and `sum(amortization) === principal` exactly.
 
 ## 2026-05-15 - US-001 — Project scaffolding, dependencies, and CI
 - Initialized Vite + React 19 + TS project at repo root with Bun.
@@ -50,4 +54,21 @@
   - Negative BRL is rendered as `"-R$ 1.234,56"` (sign before the symbol), not `"R$ -1.234,56"` — relevant for any future test snapshots.
   - The percent-style Intl formatter multiplies by 100 internally, so a "value-in-percent-units" API (preferred for human-friendly inputs like a 1,25% rate field) needs to divide by 100 before calling `.format()`.
   - Round-trip tests for `parsePercentage(formatPercentage(x))` use `toBeCloseTo(x, 2)` because the formatter rounds to the configured decimal count — strict equality won't hold for inputs like `1.234`.
+---
+
+## 2026-05-15 - US-003 — PRICE financial engine (installment + schedule)
+- Added `src/core/finance/financial-types.ts` defining `AmortizationSystem`, `FinancingInputs`, `ScheduleRow`, `ScheduleSummary`, plus a one-shot `Decimal.set({ precision: 30, rounding: ROUND_HALF_EVEN })` side-effect, a `roundMoney` helper, and a `summarizeSchedule` aggregator.
+- Added `src/core/finance/price-calculator.ts` exporting `calculatePriceInstallment({ principal, monthlyRate, termMonths })` using the standard PRICE closed-form formula (with a zero-rate branch returning `principal/term`). Validates non-negative principal/rate and positive term.
+- Added `src/core/finance/amortization.ts` exporting `generatePriceSchedule(inputs)` that rounds the base installment once, recomputes interest from the running balance each month, and lets the final installment absorb any rounding residual so the closing balance is exactly 0.
+- Tests cover: 360-month golden fixture (R$ 300.000 @ 0,8%/mês → first installment R$ 2.544,48; final balance 0; total amortization = principal); 1-month edge case; zero-rate edge case; balance-zero invariant for 4 additional `(principal, rate, term)` combinations; `interest + amortization === installment` for every row; monotonic-decreasing balance; calculator throws on invalid inputs; `summarizeSchedule` aggregates correctly.
+- Files changed: `src/core/finance/financial-types.ts`, `src/core/finance/price-calculator.ts`, `src/core/finance/price-calculator.test.ts`, `src/core/finance/amortization.ts`, `src/core/finance/amortization.test.ts`, `scripts/ralph/prd.json`, `scripts/ralph/progress.txt`.
+- Quality checks: `bun run typecheck` ✅, `bun run lint` ✅, `bun run test` ✅ (62 tests across 6 files), `bun run build` ✅.
+- **Learnings for future iterations:**
+  - Configure Decimal.js once per process. I put the `Decimal.set` call at module scope in `financial-types.ts`; every other finance module imports from there, which guarantees the precision/rounding is applied before any `Decimal` math runs in the engine. Don't sprinkle `Decimal.set` calls in feature code.
+  - PRICE base installment formula: `P · i · (1+i)^n / ((1+i)^n − 1)`. With `i = 0`, the formula is undefined (0/0); explicitly branch to `P/n`. Keep this branch — Zod allows rate > 0 in the form (US-007), but the engine must still tolerate `0` so callers can compose it with future rate-curve features.
+  - Use **bankers' rounding** (`Decimal.ROUND_HALF_EVEN`) consistently. Decimal.js defaults to `ROUND_HALF_UP`, which can drift on long schedules; the AC explicitly requires HALF_EVEN.
+  - The "final installment absorbs residual" pattern: in the loop, when `month === termMonths`, set `amortization = balance`, `installment = roundMoney(balance + interest)`, then `balance = 0`. This makes `sum(amortization) === principal` and `last.balance === 0` exact, which simplifies downstream charts/exports.
+  - `Decimal#toString()` does **not** preserve trailing zeros: `new Decimal("10100.00").toString() === "10100"`. Don't compare to `"10100.00"` in tests — use `.equals()` or `.toFixed(2)`.
+  - When you need a quick golden fixture, write the implementation first then `bun -e "import('./src/core/finance/...').then(...)"` to compute the actual rounded value, and lock that into the test. Faster and more accurate than mental log/exp math.
+  - Empty-schedule guard (`termMonths <= 0` → `[]`) makes the function safer for UI code that might bind to a half-filled form before validation runs.
 ---
