@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AmortizationTable } from "@/features/simulator/components/amortization-table";
 import { ExtraPaymentCard } from "@/features/simulator/components/extra-payment-card";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
 import { RentVsBuyCard } from "@/features/simulator/components/rent-vs-buy-card";
@@ -76,12 +77,7 @@ function App() {
 
           <ResultsSummaryCard />
 
-          <PlaceholderCard
-            className="md:col-span-12"
-            title="Tabela de amortização"
-            description="Detalhamento mês a mês das parcelas."
-            emptyState="Preencha os dados para simular"
-          />
+          <AmortizationTable />
 
           <PlaceholderCard
             className="md:col-span-12"
