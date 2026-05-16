@@ -4,10 +4,12 @@ import type { FinancingFormValues } from "@/features/simulator/schemas/financing
 
 export type SimulationState = {
   financing: FinancingFormValues | null;
+  extraMonthly: number | null;
 };
 
 export type SimulationContextValue = SimulationState & {
   setFinancing: (values: FinancingFormValues | null) => void;
+  setExtraMonthly: (value: number | null) => void;
 };
 
 export const SimulationContext = createContext<SimulationContextValue | null>(

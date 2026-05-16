@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ExtraPaymentCard } from "@/features/simulator/components/extra-payment-card";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
 
 type PlaceholderCardProps = {
@@ -67,12 +68,7 @@ function App() {
             </CardContent>
           </Card>
 
-          <PlaceholderCard
-            className="md:col-span-5"
-            title="Pagamento extra"
-            description="Simule pagamentos mensais adicionais."
-            emptyState="Informe um valor extra para simular"
-          />
+          <ExtraPaymentCard />
 
           <PlaceholderCard
             className="md:col-span-12"
