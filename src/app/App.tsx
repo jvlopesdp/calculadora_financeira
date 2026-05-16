@@ -8,6 +8,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ExtraPaymentCard } from "@/features/simulator/components/extra-payment-card";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
+import { RentVsBuyCard } from "@/features/simulator/components/rent-vs-buy-card";
 
 type PlaceholderCardProps = {
   title: string;
@@ -70,12 +71,7 @@ function App() {
 
           <ExtraPaymentCard />
 
-          <PlaceholderCard
-            className="md:col-span-12"
-            title="Aluguel vs. compra"
-            description="Compare comprar via financiamento com alugar e investir."
-            emptyState="Preencha os dados para simular"
-          />
+          <RentVsBuyCard />
 
           <PlaceholderCard
             className="md:col-span-12"

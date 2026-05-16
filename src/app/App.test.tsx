@@ -77,7 +77,7 @@ describe("App shell", () => {
   it("shows a pt-BR empty-state body in placeholder cards", () => {
     renderApp();
     const emptyStates = screen.getAllByText(/preencha os dados para simular/i);
-    expect(emptyStates.length).toBeGreaterThanOrEqual(5);
+    expect(emptyStates.length).toBeGreaterThanOrEqual(4);
     expect(
       screen.getByText(/informe um valor extra para simular/i),
     ).toBeInTheDocument();

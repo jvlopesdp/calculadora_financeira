@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
+import type { RentVsBuyFormValues } from "@/features/simulator/schemas/rent-vs-buy";
 
 import {
   SimulationContext,
@@ -12,6 +13,9 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [extraMonthly, setExtraMonthlyState] = useState<number | null>(null);
+  const [rentVsBuy, setRentVsBuyState] = useState<RentVsBuyFormValues | null>(
+    null,
+  );
 
   const setFinancing = useCallback((values: FinancingFormValues | null) => {
     setFinancingState(values);
@@ -21,9 +25,27 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
     setExtraMonthlyState(value);
   }, []);
 
+  const setRentVsBuy = useCallback((values: RentVsBuyFormValues | null) => {
+    setRentVsBuyState(values);
+  }, []);
+
   const value = useMemo<SimulationContextValue>(
-    () => ({ financing, extraMonthly, setFinancing, setExtraMonthly }),
-    [financing, extraMonthly, setFinancing, setExtraMonthly],
+    () => ({
+      financing,
+      extraMonthly,
+      rentVsBuy,
+      setFinancing,
+      setExtraMonthly,
+      setRentVsBuy,
+    }),
+    [
+      financing,
+      extraMonthly,
+      rentVsBuy,
+      setFinancing,
+      setExtraMonthly,
+      setRentVsBuy,
+    ],
   );
 
   return (

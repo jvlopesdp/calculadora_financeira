@@ -1,15 +1,18 @@
 import { createContext, useContext } from "react";
 
 import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
+import type { RentVsBuyFormValues } from "@/features/simulator/schemas/rent-vs-buy";
 
 export type SimulationState = {
   financing: FinancingFormValues | null;
   extraMonthly: number | null;
+  rentVsBuy: RentVsBuyFormValues | null;
 };
 
 export type SimulationContextValue = SimulationState & {
   setFinancing: (values: FinancingFormValues | null) => void;
   setExtraMonthly: (value: number | null) => void;
+  setRentVsBuy: (values: RentVsBuyFormValues | null) => void;
 };
 
 export const SimulationContext = createContext<SimulationContextValue | null>(
