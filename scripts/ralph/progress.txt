@@ -1,0 +1,33 @@
+## Codebase Patterns
+- Project root is `/workspace` (Vite project lives at the repo root, not in a subdir).
+- Use Bun as the task runner: `bun install`, `bun run typecheck`, `bun run lint`, `bun run test`, `bun run build`. Scripts are defined in `package.json`.
+- Tailwind v4 + `@tailwindcss/vite` plugin (no `tailwind.config.js` — theme tokens come from `src/index.css`, copied from `/index.css` tweakcn export).
+- Path alias `@/` -> `./src/` is set in both `vite.config.ts` and `tsconfig.app.json` — use `@/lib/...`, `@/core/finance/...`, etc.
+- `vite.config.ts` imports `defineConfig` from `vitest/config` (single config file for both Vite and Vitest — avoids dual-vite type-conflict).
+- shadcn/ui is initialized via `components.json` (style: new-york, baseColor: neutral, cssVariables: true). Add components with `bunx shadcn@latest add <name>`. DiceUI uses the same registry mechanism: `bunx shadcn@latest add "https://diceui.com/r/<component>.json"`.
+- ESLint config (`eslint.config.js`, flat config) enforces `@typescript-eslint/no-explicit-any: error` and ignores `src/components/ui/**` (shadcn-generated code).
+- Tests live next to source as `*.test.ts(x)` or in `src/tests/`. Global `expect`/`describe` available (vitest globals + `@testing-library/jest-dom/vitest` matchers).
+- Vitest uses jsdom environment; setup file at `src/tests/setup.ts`.
+- CI runs on push/PR to `main`: install -> typecheck -> lint -> test -> build (`.github/workflows/ci.yml`).
+
+## 2026-05-15 - US-001 — Project scaffolding, dependencies, and CI
+- Initialized Vite + React 19 + TS project at repo root with Bun.
+- Installed runtime deps (decimal.js, react-hook-form, zod, @hookform/resolvers, recharts, xlsx, @fontsource/{poppins,libre-baskerville,ibm-plex-mono}, lucide-react, clsx, tailwind-merge, class-variance-authority, @radix-ui/react-slot).
+- Installed dev deps (vitest 3, @testing-library/{react,jest-dom}, jsdom, eslint 9, typescript-eslint, @tailwindcss/vite, tailwindcss v4, @vitejs/plugin-react, globals, eslint-plugin-react-{hooks,refresh}).
+- Configured strict TS (`tsconfig.json` references `tsconfig.app.json` + `tsconfig.node.json`; both have `strict: true` and `noImplicitAny: true`).
+- Configured ESLint flat config with `no-explicit-any: error`.
+- Created folder structure under `src/`: `app/`, `core/finance/`, `features/simulator/{components,hooks,schemas}/`, `components/{ui,finance}/`, `lib/{export,storage,formatters}/`, `types/`, `tests/`.
+- Copied `/index.css` (tweakcn theme) into `src/index.css` so Vite can serve it (Vite needs the entry CSS inside `src/`). The root `/index.css` is preserved as-is per the PRD reference.
+- Added `components.json` for shadcn/ui (style: new-york).
+- Added `public/_redirects` (`/* /index.html 200`) for Cloudflare Pages SPA fallback.
+- Added `.github/workflows/ci.yml` with steps: install -> typecheck -> lint -> test -> build (using oven-sh/setup-bun).
+- Verified `bun run dev` boots on http://localhost:5173 and renders shell.
+- Files changed: `package.json`, `tsconfig.json`, `tsconfig.app.json`, `tsconfig.node.json`, `vite.config.ts`, `eslint.config.js`, `components.json`, `index.html`, `.gitignore`, `public/_redirects`, `.github/workflows/ci.yml`, `src/main.tsx`, `src/App.tsx`, `src/index.css`, `src/vite-env.d.ts`, `src/lib/utils.ts`, `src/tests/setup.ts`, `src/tests/smoke.test.ts`, `bun.lock`.
+- **Learnings for future iterations:**
+  - Vitest 2.x bundles its own Vite 5, which causes type-conflicts against Vite 6 from the root. Use Vitest ^3 with Vite 6 to keep `defineConfig` types compatible. If you ever bump Vite, bump Vitest in lockstep.
+  - Bun isn't preinstalled in this container — install it with `npm i -g bun` (the official curl installer cannot reach bun.sh from here).
+  - Don't write a separate `vitest.config.ts`; merge `test` into `vite.config.ts` and import `defineConfig` from `vitest/config`. Otherwise you'll hit `Object literal may only specify known properties, and 'test' does not exist` during `tsc`.
+  - The theme CSS at `/workspace/index.css` is the tweakcn source — copy/symlink into `src/index.css`, don't rewrite. Tailwind v4 expects the `@import "tailwindcss"` + `@theme inline` syntax already in place.
+  - The acceptance criteria mention `bun create vite` but it's interactive and can't run here; hand-rolling `package.json` + configs is equivalent and avoids the prompt.
+  - Lint ignores `src/components/ui/**` because shadcn-generated code occasionally trips the `react-refresh/only-export-components` rule.
+---

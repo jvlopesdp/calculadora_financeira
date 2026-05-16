@@ -1,0 +1,385 @@
+{
+  "project": "Financial Simulator MVP",
+  "branchName": "ralph/financial-simulator-mvp",
+  "description": "Browser-only SPA for simulating Brazilian real estate financing (PRICE + SAC), comparing extra-payment strategies, and contrasting buy-vs-rent scenarios. Pure client-side, BRL/pt-BR, Decimal.js precision, Excel export. Built with Vite + React + TS + Bun + Tailwind v4 + shadcn/ui + DiceUI + Recharts + SheetJS. Styling and dark mode driven by /index.css (tweakcn theme).",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Project scaffolding, dependencies, and CI",
+      "description": "As a developer, I need the Vite + React + TS + Bun project initialized with Tailwind v4, shadcn/ui, DiceUI, and a CI workflow so subsequent stories can build on a working foundation.",
+      "acceptanceCriteria": [
+        "Initialize Vite + React + TypeScript project at repo root using Bun (bun create vite)",
+        "Install runtime dependencies: decimal.js, react-hook-form, @hookform/resolvers, zod, recharts, xlsx (SheetJS), @fontsource/poppins, @fontsource/libre-baskerville, @fontsource/ibm-plex-mono",
+        "Install dev dependencies: vitest, @testing-library/react, @testing-library/jest-dom, jsdom, eslint, typescript-eslint",
+        "Configure Tailwind CSS v4 (matching the @import 'tailwindcss' syntax in /index.css)",
+        "Initialize shadcn/ui (components.json) and DiceUI per their docs",
+        "Create folder structure under src/: app/, core/finance/, features/simulator/{components,hooks,schemas}/, components/{ui,finance}/, lib/{export,storage,formatters}/, types/, tests/",
+        "tsconfig.json has strict: true and noImplicitAny: true",
+        "ESLint config forbids any (@typescript-eslint/no-explicit-any: error)",
+        "Add public/_redirects with '/* /index.html 200' for Cloudflare Pages SPA fallback",
+        "Create .github/workflows/ci.yml that runs: bun install, bun run typecheck, bun run lint, bun run test, bun run build",
+        "bun run dev starts the app and renders an empty shell at http://localhost:5173",
+        "Typecheck passes",
+        "Lint passes",
+        "Build passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "BRL currency, percentage, and number formatters",
+      "description": "As a developer, I need shared pt-BR formatters so currency and percentage display is consistent across UI, table, and Excel export.",
+      "acceptanceCriteria": [
+        "src/lib/formatters/currency.ts exports formatBRL(value: Decimal | number): string that returns 'R$ 1.234,56' format (pt-BR locale)",
+        "src/lib/formatters/percentage.ts exports formatPercentage(value: Decimal | number, decimals = 2): string returning '1,25%' format, plus parsePercentage(input: string): Decimal inverse",
+        "src/lib/formatters/number.ts exports formatInteger(value: number): string and formatMonths(months: number): string ('120 meses' or '10 anos e 0 meses')",
+        "All formatters use Intl.NumberFormat with 'pt-BR' locale",
+        "Vitest unit tests cover: zero, small positive, large positive (millions), negative values, fractional precision edge cases",
+        "Tests cover percentage round-trip: parsePercentage(formatPercentage(x)) ≈ x",
+        "Typecheck passes",
+        "Lint passes",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "PRICE financial engine — installment and schedule",
+      "description": "As a developer, I need a pure-function PRICE calculator and amortization schedule generator so the rest of the app has a single source of truth for PRICE financing math.",
+      "acceptanceCriteria": [
+        "src/core/finance/financial-types.ts defines FinancingInputs, ScheduleRow, ScheduleSummary, and configures Decimal.js global precision (≥ 20) and rounding mode (ROUND_HALF_EVEN)",
+        "src/core/finance/price-calculator.ts exports calculatePriceInstallment({ principal, monthlyRate, termMonths }): Decimal using the standard PRICE formula",
+        "src/core/finance/amortization.ts exports generatePriceSchedule(inputs): ScheduleRow[] with rows { month, installment, interest, amortization, balance }",
+        "All arithmetic uses Decimal.js — no native number arithmetic on monetary values",
+        "Each installment is rounded to 2 decimals before being recorded; the final installment absorbs any residual so the final balance equals zero within ≤ R$ 0,01",
+        "Vitest tests cover: 360-month standard case (R$ 300.000, 0.8% monthly, golden-fixture comparison), 1-month edge case, zero-rate edge case, balance-zero invariant",
+        "Typecheck passes",
+        "Lint passes",
+        "Tests pass"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "SAC financial engine — installment and schedule",
+      "description": "As a developer, I need a SAC calculator so users can simulate both amortization systems in parallel.",
+      "acceptanceCriteria": [
+        "src/core/finance/amortization.ts exports generateSacSchedule(inputs): ScheduleRow[] returning the same row shape as PRICE",
+        "Monthly amortization is constant (principal / termMonths); installment decreases monotonically",
+        "All arithmetic uses Decimal.js",
+        "Final balance equals zero within ≤ R$ 0,01",
+        "Vitest tests cover: 360-month standard case (golden fixture), 1-month edge case, invariant test that total SAC interest < total PRICE interest for the same inputs, balance-zero invariant",
+        "Typecheck passes",
+        "Lint passes",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Prepayment engine — reduce-term and reduce-installment strategies",
+      "description": "As a developer, I need both extra-payment strategies implemented as pure functions so the simulator can compare them against PRICE and SAC base schedules.",
+      "acceptanceCriteria": [
+        "src/core/finance/prepayment.ts exports applyPrepaymentReduceTerm(baseInputs, extraMonthly): { schedule, summary } and applyPrepaymentReduceInstallment(baseInputs, extraMonthly): { schedule, summary }",
+        "Both functions accept FinancingInputs (includes amortization system PRICE | SAC) and an extraMonthly Decimal value",
+        "Summary includes: totalPaid, totalInterest, interestSaved, originalTermMonths, newTermMonths, monthsReduced (all Decimal/number)",
+        "Reduce-term: installment fixed, term shortens, last installment may be partial to drive balance to zero",
+        "Reduce-installment: term fixed, future installments recalculated each month after extra payment is applied",
+        "Both strategies work for PRICE and SAC base schedules",
+        "Vitest tests cover both strategies × both systems (4 combinations), plus zero-extra-payment passthrough that matches base schedule exactly",
+        "Typecheck passes",
+        "Lint passes",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Rent vs. buy comparison engine",
+      "description": "As a developer, I need a rent-vs-buy calculator that produces parallel net-worth time series for both scenarios so the UI can render a comparison.",
+      "acceptanceCriteria": [
+        "src/core/finance/rent-vs-buy.ts exports compareRentVsBuy(inputs): { buyTimeline, rentTimeline, summary }",
+        "Buy timeline: monthly entries with propertyValue, outstandingBalance, investedCapital, netWorth",
+        "Rent timeline: monthly entries with rent, investedCapital, monthlyContribution, netWorth",
+        "Annual investment return is the canonical input; convert to monthly via (1 + annual)^(1/12) − 1",
+        "Property appreciation compounded monthly from annual rate",
+        "Rent adjusted on the 12th month and every 12 months after (24, 36, …)",
+        "Ownership costs reduce buy-side investable difference; if buy outflow > rent, no investment is made that month (no borrowing)",
+        "Negative net worth allowed (do not floor at zero)",
+        "Summary: bestScenario ('buy' | 'rent' | 'tie'), netWorthDifferenceFinal (Decimal), breakEvenMonth (number | null)",
+        "Vitest tests cover: equal-outcome scenario, buy-wins scenario, rent-wins scenario, break-even detection with correct month, no-break-even returns null",
+        "Typecheck passes",
+        "Lint passes",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Zod input validation schemas in pt-BR",
+      "description": "As a developer, I need Zod schemas for every input form so simulations never run with invalid data and error messages display in pt-BR.",
+      "acceptanceCriteria": [
+        "src/features/simulator/schemas/financing.ts defines the financing-input schema (property value > 0, down payment ≥ 0 AND < property value, term > 0, monthly rate > 0, amortization system enum)",
+        "src/features/simulator/schemas/prepayment.ts defines the prepayment-input schema (extraMonthly ≥ 0)",
+        "src/features/simulator/schemas/rent-vs-buy.ts defines the rent-vs-buy schema (rent ≥ 0, annual rent adjustment ≥ 0, annual investment return ≥ 0, annual appreciation ≥ 0, ownership costs ≥ 0, horizon > 0)",
+        "All error messages are written in pt-BR (e.g., 'O valor do imóvel deve ser maior que zero')",
+        "Vitest tests cover each rule with at least one valid case and one invalid case per field",
+        "Typecheck passes",
+        "Lint passes",
+        "Tests pass"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Theme integration — index.css, self-hosted fonts, dark mode toggle",
+      "description": "As a user, I want the entire app to inherit the tweakcn theme defined in /index.css (colors, fonts, radii, shadows) so visual styling is consistent and dark mode works.",
+      "acceptanceCriteria": [
+        "Move /index.css into src/index.css (or import the root /index.css from src/main.tsx) — exactly one global stylesheet, imported in src/main.tsx",
+        "Import @fontsource/poppins (400, 500, 600, 700), @fontsource/libre-baskerville (400, 700), and @fontsource/ibm-plex-mono (400, 500) in src/main.tsx",
+        "Configure Tailwind v4 to expose --font-sans, --font-mono, --font-serif from the CSS variables",
+        "Create src/components/theme-provider.tsx that adds/removes the 'dark' class on document.documentElement",
+        "Initial mode follows window.matchMedia('(prefers-color-scheme: dark)'); toggle overrides for the session (in-memory only, no persistence)",
+        "Create src/components/theme-toggle.tsx — a shadcn-styled button that flips light/dark mode",
+        "Render <ThemeProvider> in src/main.tsx wrapping <App />",
+        "Document body uses font-sans by default; add a utility class .font-tabular { font-family: var(--font-mono); font-variant-numeric: tabular-nums; } in src/index.css for monetary cells",
+        "Visually verify: switching to dark mode flips background, foreground, card, border, and chart colors via the CSS variables in index.css",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "App shell — single-page layout with section cards",
+      "description": "As a user, I want a clean single-page layout with clearly labeled sections so I can navigate the simulator without instructions.",
+      "acceptanceCriteria": [
+        "src/app/App.tsx renders, in order: header (with title 'Simulador de Financiamento' and theme toggle), general-assumptions card placeholder, financing card placeholder, extra-payment card placeholder, rent-vs-buy card placeholder, results-summary card placeholder, amortization table placeholder, charts placeholder, export-button placeholder",
+        "Each placeholder is a shadcn/ui Card with a pt-BR title and an empty-state body ('Preencha os dados para simular' where appropriate)",
+        "Sections stack vertically below 768px width; use a 12-column grid above 768px (cards span sensibly)",
+        "All Card components use theme tokens (bg-card, text-card-foreground, border-border) — no hardcoded colors",
+        "Header is sticky at top with a subtle shadow",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill (both light and dark mode)"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Financing simulation form with PRICE/SAC selector",
+      "description": "As a user, I want to enter financing parameters and pick PRICE or SAC so the engine can produce a base scenario.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/financing-form.tsx renders a React Hook Form + Zod resolver form bound to the financing schema (US-007)",
+        "Fields (all in pt-BR labels): Valor do imóvel (currency), Entrada (currency), Valor financiado (derived, read-only), Taxa mensal (percentage), Taxa anual equivalente (derived, read-only), Prazo em meses (number), Sistema de amortização (Select: PRICE | SAC)",
+        "Create reusable src/components/finance/currency-input.tsx that formats on blur to 'R$ 1.234,56' and parses pt-BR back to Decimal",
+        "Create reusable src/components/finance/percentage-input.tsx that formats on blur to '1,25%' and parses back",
+        "Inline error messages in pt-BR appear below invalid fields",
+        "Form values flow to a useSimulation hook (or context) at the page level; the financing form replaces the placeholder in App.tsx",
+        "Submit button is disabled while the form is invalid",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Extra payment card with reduce-term / reduce-installment tabs",
+      "description": "As a user, I want to enter an extra monthly payment and see both strategies (reduce term vs. reduce installment) side by side.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/extra-payment-card.tsx renders a CurrencyInput for extraMonthlyPayment (validated ≥ 0 via Zod)",
+        "Two shadcn/ui Tabs: 'Reduzir prazo' and 'Reduzir parcela'",
+        "Each tab shows: Economia em juros (interest saved), Total pago, Novo prazo (months), Meses reduzidos, and a 'Diferença vs. base' delta — all formatted in BRL / pt-BR",
+        "Wires the prepayment engine (US-005) into the useSimulation pipeline; reactively recomputes on any input change to financing or extra payment",
+        "Card replaces the extra-payment placeholder in App.tsx",
+        "Empty state when extraMonthlyPayment is 0 or null: 'Informe um valor extra para simular'",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Rent vs. buy input card and results panel",
+      "description": "As a user, I want to enter rent and investment assumptions so I can compare buying through financing against renting and investing.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/rent-vs-buy-card.tsx renders a React Hook Form + Zod resolver form bound to the rent-vs-buy schema (US-007)",
+        "Fields (pt-BR labels): Aluguel mensal (currency), Reajuste anual do aluguel (%), Rendimento anual do investimento (%), Valorização anual do imóvel (%), Custos mensais de propriedade (currency, optional), Horizonte (number + toggle between meses/anos)",
+        "Annual investment return is editable; monthly equivalent shown as derived read-only text",
+        "Results panel shows: Melhor cenário badge ('Comprar' green or 'Alugar e investir' blue), Patrimônio final (comprar), Patrimônio final (alugar), Diferença, Ponto de equilíbrio (month number or 'Não atinge ponto de equilíbrio')",
+        "Wires the rent-vs-buy engine (US-006) into useSimulation",
+        "Replaces the rent-vs-buy placeholder in App.tsx",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Results summary card",
+      "description": "As a user, I want a top-level summary card showing key financing numbers without scrolling through tables.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/results-summary-card.tsx displays: Valor financiado, Parcela inicial, Total pago (base), Total pago (com extra, conforme estratégia selecionada), Total de juros (base vs. com extra), Economia total, Prazo original, Novo prazo, Meses reduzidos",
+        "Each value formatted in BRL or 'X meses' as appropriate, using the formatters from US-002",
+        "Monetary values use the .font-tabular utility from US-008",
+        "Positive deltas (savings) show in success color; negative deltas in destructive color, both pulled from theme tokens",
+        "Card updates reactively when any input changes",
+        "Empty state when the financing form is incomplete: 'Preencha os dados para simular'",
+        "Replaces the summary placeholder in App.tsx",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Amortization data table with DiceUI",
+      "description": "As a user, I want to inspect the month-by-month amortization schedule with sorting, filtering, and column visibility control.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/amortization-table.tsx uses DiceUI Radix Data Table to render rows from the active schedule",
+        "A scenario selector (shadcn Select or Tabs) switches between: Base, Com extra (reduzir prazo), Com extra (reduzir parcela)",
+        "Columns: Mês, Parcela base, Juros, Amortização, Pagamento extra, Pagamento total, Saldo devedor, Juros acumulados, Amortização acumulada, Status",
+        "Supports: pagination (default 12 rows/page), sorting on numeric columns, simple month-range filter, column visibility toggle, toolbar actions row, responsive horizontal scroll",
+        "Monetary cells right-aligned with .font-tabular utility",
+        "Same dataset (ScheduleRow[] from engine) feeds the future Excel export — do not duplicate calculation",
+        "Replaces the table placeholder in App.tsx",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Chart — Net worth (buy vs. rent) over time",
+      "description": "As a user, I want a line chart showing how my net worth evolves under buy and rent scenarios so I can see which strategy wins over time.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/charts/net-worth-chart.tsx uses Recharts LineChart with two series: 'Comprar' and 'Alugar e investir'",
+        "X axis: month number; Y axis: BRL net worth (formatted with formatBRL on tick labels)",
+        "Tooltip shows month, both net-worth values, and the difference, all in pt-BR with BRL formatting",
+        "Series colors use var(--chart-1) and var(--chart-2) from /index.css",
+        "Chart resizes responsively (Recharts ResponsiveContainer)",
+        "Renders legibly in both light and dark mode",
+        "Mounted into App.tsx charts section",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill (both modes)"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Chart — Outstanding balance (base vs. with extra payment)",
+      "description": "As a user, I want a line chart overlaying base loan balance against the with-extra-payment balance so I can visualize how prepayment accelerates payoff.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/charts/outstanding-balance-chart.tsx uses Recharts LineChart with two series: 'Saldo base' and 'Saldo com extra' (uses currently selected strategy)",
+        "X axis: month; Y axis: BRL (formatted)",
+        "Tooltip in pt-BR with BRL formatting",
+        "Series use var(--chart-1) and var(--chart-3) from /index.css",
+        "Responsive container; legible in light and dark mode",
+        "Mounted into App.tsx charts section",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Chart — Installment composition (interest vs. amortization)",
+      "description": "As a user, I want a stacked area or bar chart showing how each monthly installment is split between interest and amortization so I can see the shift over time.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/charts/installment-composition-chart.tsx uses Recharts stacked AreaChart (or BarChart) with two stacked series: 'Juros' and 'Amortização'",
+        "X axis: month; Y axis: BRL installment portion (formatted)",
+        "Tooltip shows the month, juros, amortização, and total installment in pt-BR / BRL",
+        "Series use var(--chart-2) (interest) and var(--chart-4) (amortization)",
+        "Responsive container; legible in light and dark mode",
+        "Mounted into App.tsx charts section",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Chart — Accumulated interest savings over time",
+      "description": "As a user, I want a line chart showing how much interest I have saved cumulatively by paying extra each month so I can see the long-term value of prepayment.",
+      "acceptanceCriteria": [
+        "src/features/simulator/components/charts/interest-savings-chart.tsx uses Recharts LineChart with one series: 'Economia acumulada'",
+        "X axis: month; Y axis: BRL saved (formatted)",
+        "Tooltip in pt-BR with BRL formatting",
+        "Series uses var(--chart-5) from /index.css",
+        "Responsive container; legible in light and dark mode",
+        "Mounted into App.tsx charts section",
+        "Empty state when extraMonthlyPayment is 0: 'Informe um valor extra para visualizar a economia'",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Excel export — multi-sheet xlsx generation",
+      "description": "As a user, I want a button that exports the entire simulation to an .xlsx file generated client-side so I can analyze and share the results offline.",
+      "acceptanceCriteria": [
+        "src/lib/export/excel-export.ts exposes exportSimulation(state): Promise<void> that builds and downloads an .xlsx via SheetJS",
+        "SheetJS (xlsx) is imported via dynamic import() inside exportSimulation — not in the initial bundle",
+        "File contains sheets, in order: Resumo, Premissas, Financiamento Base, Amortização Extra (Reduzir Prazo), Amortização Extra (Reduzir Parcela), Aluguel vs Compra, Tabela Comparativa",
+        "Numeric cells use Excel currency format (z: 'R$ #,##0.00') and percentage format (z: '0,00%') — no string-formatted values",
+        "Exported rows come from the same ScheduleRow[] objects the UI table renders — no duplicated financial computation",
+        "Filename uses pattern: simulacao-financiamento-YYYY-MM-DD.xlsx (current date)",
+        "Button 'Exportar Excel' (shadcn Button) lives in the App.tsx export section; disabled when the simulation is incomplete",
+        "After click, file downloads via Blob + URL.createObjectURL",
+        "Typecheck passes",
+        "Lint passes",
+        "Verify in browser using dev-browser skill — trigger download and confirm the file opens in a spreadsheet app with all sheets populated"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
