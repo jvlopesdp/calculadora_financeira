@@ -5,6 +5,7 @@ import type { RentVsBuyFormValues } from "@/features/simulator/schemas/rent-vs-b
 
 import {
   SimulationContext,
+  type ExtraPaymentStrategy,
   type SimulationContextValue,
 } from "@/features/simulator/hooks/simulation-context";
 
@@ -13,6 +14,8 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
     null,
   );
   const [extraMonthly, setExtraMonthlyState] = useState<number | null>(null);
+  const [extraStrategy, setExtraStrategyState] =
+    useState<ExtraPaymentStrategy>("term");
   const [rentVsBuy, setRentVsBuyState] = useState<RentVsBuyFormValues | null>(
     null,
   );
@@ -25,6 +28,10 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
     setExtraMonthlyState(value);
   }, []);
 
+  const setExtraStrategy = useCallback((strategy: ExtraPaymentStrategy) => {
+    setExtraStrategyState(strategy);
+  }, []);
+
   const setRentVsBuy = useCallback((values: RentVsBuyFormValues | null) => {
     setRentVsBuyState(values);
   }, []);
@@ -33,17 +40,21 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
     () => ({
       financing,
       extraMonthly,
+      extraStrategy,
       rentVsBuy,
       setFinancing,
       setExtraMonthly,
+      setExtraStrategy,
       setRentVsBuy,
     }),
     [
       financing,
       extraMonthly,
+      extraStrategy,
       rentVsBuy,
       setFinancing,
       setExtraMonthly,
+      setExtraStrategy,
       setRentVsBuy,
     ],
   );

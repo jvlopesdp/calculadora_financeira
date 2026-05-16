@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ExtraPaymentCard } from "@/features/simulator/components/extra-payment-card";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
 import { RentVsBuyCard } from "@/features/simulator/components/rent-vs-buy-card";
+import { ResultsSummaryCard } from "@/features/simulator/components/results-summary-card";
 
 type PlaceholderCardProps = {
   title: string;
@@ -73,12 +74,7 @@ function App() {
 
           <RentVsBuyCard />
 
-          <PlaceholderCard
-            className="md:col-span-12"
-            title="Resumo dos resultados"
-            description="Visão geral dos principais números da simulação."
-            emptyState="Preencha os dados para simular"
-          />
+          <ResultsSummaryCard />
 
           <PlaceholderCard
             className="md:col-span-12"

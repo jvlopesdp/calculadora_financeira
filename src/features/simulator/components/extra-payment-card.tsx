@@ -130,7 +130,8 @@ const FINANCING_MISSING_STATE =
   "Preencha os dados do financiamento para simular pagamentos extras";
 
 export function ExtraPaymentCard() {
-  const { financing, setExtraMonthly } = useSimulation();
+  const { financing, setExtraMonthly, extraStrategy, setExtraStrategy } =
+    useSimulation();
   const {
     control,
     formState: { errors, isValid },
@@ -229,7 +230,13 @@ export function ExtraPaymentCard() {
         </form>
 
         {showResults ? (
-          <Tabs defaultValue="term" className="mt-6">
+          <Tabs
+            value={extraStrategy}
+            onValueChange={(next) =>
+              setExtraStrategy(next === "installment" ? "installment" : "term")
+            }
+            className="mt-6"
+          >
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="term">Reduzir prazo</TabsTrigger>
               <TabsTrigger value="installment">Reduzir parcela</TabsTrigger>
