@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AmortizationTable } from "@/features/simulator/components/amortization-table";
+import { InstallmentCompositionChart } from "@/features/simulator/components/charts/installment-composition-chart";
 import { NetWorthChart } from "@/features/simulator/components/charts/net-worth-chart";
 import { OutstandingBalanceChart } from "@/features/simulator/components/charts/outstanding-balance-chart";
 import { ExtraPaymentCard } from "@/features/simulator/components/extra-payment-card";
@@ -91,6 +92,7 @@ function App() {
             <CardContent className="flex flex-col gap-8">
               <NetWorthChart />
               <OutstandingBalanceChart />
+              <InstallmentCompositionChart />
             </CardContent>
           </Card>
 
