@@ -299,7 +299,7 @@
         "Verify in browser using dev-browser skill (both modes)"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

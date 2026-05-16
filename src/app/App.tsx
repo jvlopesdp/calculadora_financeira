@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AmortizationTable } from "@/features/simulator/components/amortization-table";
+import { NetWorthChart } from "@/features/simulator/components/charts/net-worth-chart";
 import { ExtraPaymentCard } from "@/features/simulator/components/extra-payment-card";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
 import { RentVsBuyCard } from "@/features/simulator/components/rent-vs-buy-card";
@@ -79,12 +80,17 @@ function App() {
 
           <AmortizationTable />
 
-          <PlaceholderCard
-            className="md:col-span-12"
-            title="Gráficos"
-            description="Evolução do saldo, patrimônio e composição das parcelas."
-            emptyState="Preencha os dados para simular"
-          />
+          <Card className="md:col-span-12">
+            <CardHeader>
+              <CardTitle>Gráficos</CardTitle>
+              <CardDescription>
+                Evolução do saldo, patrimônio e composição das parcelas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-8">
+              <NetWorthChart />
+            </CardContent>
+          </Card>
 
           <PlaceholderCard
             className="md:col-span-12"
