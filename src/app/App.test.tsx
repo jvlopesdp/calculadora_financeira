@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "@/app/App";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SimulationProvider } from "@/features/simulator/hooks/simulation-provider";
 
 type MediaQueryListener = (event: MediaQueryListEvent) => void;
 
@@ -27,7 +28,9 @@ function stubMatchMedia(prefersDark: boolean) {
 function renderApp() {
   return render(
     <ThemeProvider>
-      <App />
+      <SimulationProvider>
+        <App />
+      </SimulationProvider>
     </ThemeProvider>,
   );
 }

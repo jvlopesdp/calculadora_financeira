@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { FinancingForm } from "@/features/simulator/components/financing-form";
 
 type PlaceholderCardProps = {
   title: string;
@@ -54,12 +55,17 @@ function App() {
             emptyState="Preencha os dados para simular"
           />
 
-          <PlaceholderCard
-            className="md:col-span-7"
-            title="Financiamento"
-            description="Informe os detalhes do financiamento imobiliário."
-            emptyState="Preencha os dados para simular"
-          />
+          <Card className="md:col-span-7">
+            <CardHeader>
+              <CardTitle>Financiamento</CardTitle>
+              <CardDescription>
+                Informe os detalhes do financiamento imobiliário.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FinancingForm />
+            </CardContent>
+          </Card>
 
           <PlaceholderCard
             className="md:col-span-5"

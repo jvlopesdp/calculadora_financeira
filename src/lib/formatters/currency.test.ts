@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "decimal.js";
-import { formatBRL } from "./currency";
+import { formatBRL, parseBRL } from "./currency";
 
 describe("formatBRL", () => {
   it("formats zero", () => {
@@ -41,5 +41,36 @@ describe("formatBRL", () => {
 
   it("handles very large Decimal values precisely", () => {
     expect(formatBRL(new Decimal("9999999.99"))).toBe("R$ 9.999.999,99");
+  });
+});
+
+describe("parseBRL", () => {
+  it("parses canonical BRL output", () => {
+    expect(parseBRL("R$ 1.234,56")).toBeCloseTo(1234.56);
+  });
+
+  it("parses values without the R$ prefix", () => {
+    expect(parseBRL("1.234,56")).toBeCloseTo(1234.56);
+    expect(parseBRL("1234,56")).toBeCloseTo(1234.56);
+  });
+
+  it("round-trips formatBRL output", () => {
+    const original = 9876.54;
+    expect(parseBRL(formatBRL(original))).toBeCloseTo(original);
+  });
+
+  it("returns null for blanks", () => {
+    expect(parseBRL("")).toBeNull();
+    expect(parseBRL("   ")).toBeNull();
+  });
+
+  it("returns null for non-numeric input", () => {
+    expect(parseBRL("abc")).toBeNull();
+    expect(parseBRL("R$ -")).toBeNull();
+  });
+
+  it("parses integer values", () => {
+    expect(parseBRL("R$ 0,00")).toBe(0);
+    expect(parseBRL("10")).toBe(10);
   });
 });
