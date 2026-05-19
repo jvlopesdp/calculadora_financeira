@@ -57,8 +57,8 @@
         "Tests pass"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented as `src/server/middleware/require-user.ts` using `createMiddleware` from `hono/factory`, typed with `{ Bindings: Env; Variables: AuthVariables }`. Wrapped `auth.api.getSession({ headers })` in try/catch so D1/network errors fall through as 401 rather than 500 (added as a 4th test). Middleware mounted in `src/server/index.ts` AFTER /api/health and /api/auth/* and BEFORE the /api/* 404 fallback — Hono only applies a middleware to handlers registered after the `app.use(...)` call, so the public routes stay public. Tests mock `../auth` via vi.mock so they don't need a real D1."
     },
     {
       "id": "US-004",

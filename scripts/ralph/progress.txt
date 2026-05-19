@@ -11,6 +11,8 @@ Started: Mon May 18 19:39:03 PDT 2026
 - **Better Auth on D1**: `betterAuth({ database: env.DB })` is enough — the kysely-adapter auto-detects D1 via `batch/exec/prepare` and dynamically loads `D1SqliteDialect`. No `{ provider: 'd1' }` wrapper needed in v1.6.x. Build a fresh `createAuth(env)` per Hono request (no module-level singletons in Workers — each request has its own bindings).
 - **Shared auth options pattern**: keep plugin/session/email options in `src/server/auth-options.ts` (no env deps) and re-use them in both `src/server/auth.ts` (Worker, `database: env.DB`) and `auth.config.ts` (CLI, in-memory SQLite). Prevents the CLI-generated schema from drifting from the runtime config.
 - **`@better-auth/cli generate` needs a real Kysely-compatible DB** because it calls `db.introspection.getTables()`. Bun runs the CLI through jiti/Node, so `bun:sqlite` is unavailable there; the fallback is to install `better-sqlite3` (native build) or hand-write the SQL using `@better-auth/core/db/get-tables` as the source of truth. The hand-written `0001_better_auth.sql` mirrors the Kysely SQLite output exactly: lowercase DDL keywords, double-quoted identifiers, `text`/`integer`/`date` types, `references "user" ("id") on delete cascade`, indexes appended as `create index "<table>_<col>_idx"`.
+- **Hono middleware registration order matters**: `app.use(path, mw)` only applies to handlers registered AFTER the `use` call. Put public routes first, then `app.use(requireUser)`, then protected routes. The `/api/*` 404 fallback can sit after the middleware safely (returns 401 for unauthed unknown routes — fine).
+- **Server-side vitest pattern**: tests under `src/server/**` are picked up by `tsconfig.server.json` (workers-types only, no DOM lib). Import everything explicitly from `vitest` (no globals), mock dependencies with `vi.mock("../auth", () => ({...}))` at module top, and use Hono's `app.request(path, init, env)` to drive the middleware with a fake `Env`. Hono serializes `Date` to ISO strings when round-tripping through `c.json`, so assertions must compare `.toISOString()`.
 
 ---
 
@@ -54,4 +56,18 @@ Started: Mon May 18 19:39:03 PDT 2026
   - The Worker bundle pulls in three SQLite dialects (D1, Bun, Node) because the kysely-adapter `await import()`s them conditionally. That's fine on Workers (dead-code at runtime), but bundle size jumps ~1.4 MiB. Watch this if we get near the 10 MiB free-tier limit.
   - `useDefineForClassFields` + `noUncheckedSideEffectImports` in tsconfig.app.json conflict with raw side-effect imports; keep server-only code in `src/server/` so it lands in `tsconfig.server.json` (which doesn't have the DOM lib and so won't reject worker types).
   - The custom auth.config.ts at the repo root is NOT included in any tsconfig (intentional — Bun runs it directly). If you ever need to typecheck it, add a fourth project ref; for now `@ts-ignore` on the `bun:sqlite` import is sufficient.
+---
+
+## 2026-05-18 - US-003
+- Implemented `requireUser` Hono middleware and wired it into the Worker app.
+- Files changed:
+  - `src/server/middleware/require-user.ts` (new): exports `requireUser`, `AuthVariables`, `AuthUser`, `AuthSession`. Uses `createMiddleware<{ Bindings: Env; Variables: AuthVariables }>` from `hono/factory`. Calls `createAuth(c.env).api.getSession({ headers: c.req.raw.headers })` inside try/catch; null/throw → 401 JSON `{ error: 'unauthorized' }`; success → `c.set('user', ...)` + `c.set('session', ...)`.
+  - `src/server/middleware/require-user.test.ts` (new): 4 vitest cases — valid session passes and exposes user/session, missing session → 401, expired session → 401, getSession throw → 401. Mocks `../auth` via `vi.mock`. Drives Hono via `app.request(path, init, env)` with a fake `Env`.
+  - `src/server/index.ts`: typed root app as `Hono<{ Bindings: Env; Variables: AuthVariables }>`. Mounted `app.use("/api/*", requireUser)` AFTER `/api/health` + `/api/auth/*` and BEFORE the `/api/*` 404 fallback so the public routes stay public and any future protected routes register below the middleware.
+- Quality checks: `bun run typecheck` ✓, `bun run lint` ✓, `bun run test` (356/356, +4 new) ✓, `bun run build` ✓, `bunx --bun wrangler deploy --dry-run` ✓ (worker bundle still 1505 KiB — no growth).
+- **Learnings for future iterations:**
+  - Hono's `createMiddleware<{ Bindings; Variables }>` is the cleanest way to type a middleware that needs both env bindings and shared context variables. The Variables type is the canonical place to declare what `c.get(...)` returns inside route handlers downstream.
+  - Better Auth's `auth.api.getSession` returns `null` for missing/expired/revoked sessions (no thrown error in the happy "no session" path). Wrap it in try/catch anyway — D1/network failures during the lookup should not 500; they should fail closed as 401.
+  - Hono's route dispatcher composes ALL matched handlers/middlewares in registration order. A `use()` registered AFTER a `get()` does NOT wrap the earlier handler. This makes `/api/health` and `/api/auth/*` trivially "public" — just register them before `app.use(requireUser)`.
+  - Mock Better Auth in tests by `vi.mock("../auth", () => ({ createAuth: vi.fn() }))`. The factory must return something whose `.api.getSession` is a function — Hono will only ever invoke that path. Cast through `as unknown as ReturnType<typeof createAuth>` to satisfy TS without pulling the full Better Auth surface.
 ---

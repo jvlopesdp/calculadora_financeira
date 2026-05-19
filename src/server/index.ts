@@ -2,8 +2,9 @@ import { Hono } from "hono";
 
 import { createAuth } from "./auth";
 import type { Env } from "./env";
+import { requireUser, type AuthVariables } from "./middleware/require-user";
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.get("/api/health", (c) =>
   c.json({
@@ -15,6 +16,9 @@ app.get("/api/health", (c) =>
 app.on(["POST", "GET"], "/api/auth/*", (c) =>
   createAuth(c.env).handler(c.req.raw),
 );
+
+// Every /api/* route registered below this line requires a valid session.
+app.use("/api/*", requireUser);
 
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
 
