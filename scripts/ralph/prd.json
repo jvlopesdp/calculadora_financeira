@@ -76,8 +76,8 @@
         "Lint passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Migration applied locally via `bunx --bun wrangler d1 migrations apply ... --local` (the package.json `db:migrate:local` script runs wrangler directly which fails under Node 20 in this sandbox; use `bunx --bun wrangler` to invoke through Bun's runtime). Domain columns use snake_case (per PRD); the Better Auth tables remain in camelCase. The cross-namespace FK works because D1 enables foreign keys by default — `financing_scenarios.user_id REFERENCES \"user\"(\"id\")` cascades cleanly even though the parent column is `id` (camelCase) and the child is `user_id` (snake_case). Verified via `sqlite_master` query that both tables and both indexes were created with the exact DDL as written."
     },
     {
       "id": "US-005",

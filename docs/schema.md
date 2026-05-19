@@ -90,6 +90,56 @@ Index: `verification_identifier_idx` on `identifier`.
 
 ---
 
+## `0002_domain.sql` — App domain tables
+
+App-specific tables. Naming convention is **snake_case** (distinct from Better
+Auth's camelCase) because these are our own tables and follow the conventions
+in the PRD. Monetary values are stored as integer **cents** and rates as
+**basis points** (1 bp = 0.01 %) so the Decimal.js engine can rebuild values
+without floating-point loss.
+
+### `financing_scenarios`
+
+One row per financing the user is tracking. Soft-deleted via `archived_at`.
+
+| Column                      | Type    | Notes                                              |
+| --------------------------- | ------- | -------------------------------------------------- |
+| `id`                        | TEXT PK | App-generated UUID/ULID                            |
+| `user_id`                   | TEXT    | required, FK → `user(id)` ON DELETE CASCADE        |
+| `name`                      | TEXT    | nullable (UI may default to "Financiamento #N")    |
+| `property_value_cents`      | INTEGER | required, value of the property in cents           |
+| `down_payment_cents`        | INTEGER | required                                           |
+| `term_months`               | INTEGER | required, original term in months                  |
+| `annual_rate_basis_points`  | INTEGER | required, e.g. 1080 = 10.80 % a.a.                 |
+| `start_date`                | TEXT    | required, ISO-8601 date `YYYY-MM-DD`               |
+| `created_at`                | INTEGER | required, Unix epoch milliseconds                  |
+| `archived_at`               | INTEGER | nullable, Unix epoch ms when soft-deleted          |
+
+Index: `idx_scenarios_user` on `user_id` — supports the per-user listing query.
+
+### `payment_history`
+
+Chronological record of real payments registered against a scenario. Used by
+the `replayPayments` engine (US-029) to derive current state from inputs +
+payments.
+
+| Column                  | Type    | Notes                                                         |
+| ----------------------- | ------- | ------------------------------------------------------------- |
+| `id`                    | TEXT PK |                                                               |
+| `scenario_id`           | TEXT    | required, FK → `financing_scenarios(id)` ON DELETE CASCADE    |
+| `reference_month`       | TEXT    | required, `YYYY-MM` — which installment this payment maps to  |
+| `payment_date`          | TEXT    | required, `YYYY-MM-DD` — actual day the user paid             |
+| `amount_paid_cents`     | INTEGER | required                                                      |
+| `payment_type`          | TEXT    | required, e.g. `parcela` \| `amortizacao_extra` \| `misto`    |
+| `amortization_strategy` | TEXT    | required, e.g. `prazo` \| `parcela`                           |
+| `notes`                 | TEXT    | nullable, free-text                                           |
+| `created_at`            | INTEGER | required, Unix epoch milliseconds                             |
+
+Index: `idx_payments_scenario_month` on `(scenario_id, reference_month)` —
+supports `replayPayments` and the chronological list view.
+
+---
+
 ## Regenerating the Better Auth migration
 
 ```bash
