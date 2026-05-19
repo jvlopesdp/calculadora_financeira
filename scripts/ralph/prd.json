@@ -135,8 +135,8 @@
         "Tests pass"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Imported `createAuthClient` from `better-auth/react` (subpath export wired in better-auth 1.6.11 package.json — gives the React-flavoured client whose `useSession()` returns `{ data, isPending, isRefetching, error, refetch }`). VITE_APP_URL was already in .env.example (added in US-002). User/session types exported via `ReturnType<typeof authClient.useSession>['data']` → safer than reaching into the internal `$Infer.Session` since the React client doesn't expose `$Infer` directly. Better Auth's React hook key is `isPending`, NOT `isLoading` (`isLoading` is the wrapper name we picked). Tests live at `src/lib/use-current-user.test.ts` and mock `./auth-client` with a module-scope `vi.fn()` returned from a getter inside the `vi.mock` factory — this avoids touching the real createAuthClient at all (which would otherwise try to start nanostores' session refresh)."
     },
     {
       "id": "US-008",
