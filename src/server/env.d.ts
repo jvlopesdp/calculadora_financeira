@@ -13,4 +13,6 @@ export interface Env {
   BETTER_AUTH_SECRET: string;
   /** Public base URL for Better Auth (must match the app origin) */
   BETTER_AUTH_URL: string;
+  /** Resend API key for transactional emails. Empty/missing → logs instead of sending (dev). */
+  RESEND_API_KEY?: string;
 }

@@ -97,8 +97,8 @@
         "Tests pass"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Resend SDK 6.x is dual-runtime (Node 20+ in package.json engines, but cleanly bundleable for Workers — wrangler picked it up without polyfills). `sendEmail({to,subject,html,text}, env)` lives in `src/server/email.ts`; templates in `src/server/email-templates.ts` return `{subject, html, text}` so the caller doesn't reach into module-private subject lines. Wired via `createAuth(env)` (NOT via `sharedAuthOptions`, which is env-agnostic) by overriding `emailVerification.sendVerificationEmail` and `emailAndPassword.sendResetPassword`. `sharedAuthOptions.emailAndPassword` is spread first so `requireEmailVerification`/`resetPasswordTokenExpiresIn` survive; `emailVerification` is built whole because the shared object doesn't carry it. Tests use a module-scope `sendMock` shared between the `vi.mock` factory and the test bodies — this avoids the brittle pattern of reaching into the Resend constructor's mock implementation."
     },
     {
       "id": "US-006",
