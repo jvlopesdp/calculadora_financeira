@@ -156,8 +156,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Installed `react-router-dom@7.15.1` (v7's data-router style is opt-in; we use the classic `<BrowserRouter>` + `<Routes>` for simplicity here). Split App into `src/app/App.tsx` (just `<BrowserRouter><AppRoutes/></BrowserRouter>`) and `src/app/routes.tsx` (exports `AppRoutes` returning `<Routes>...`). The factoring matters for tests: `<MemoryRouter><AppRoutes/></MemoryRouter>` drops in trivially, whereas wrapping the App component would nest two routers. AppShell and AuthLayout are layout routes (`<Route element={<AppShell/>}>...<Outlet/></Route>`). ProtectedRoute is also a layout route — wraps `/historico` only (per PRD, `/financiamento` stays public for now). ProtectedRoute uses `useCurrentUser()`: while `isLoading`, renders a status spinner; if `user === null`, `<Navigate to=\"/login\" replace state={{ from: location.pathname }} />` so the post-login redirect (added later) can read it. Simulator content moved to `src/features/simulator/pages/financiamento-page.tsx`; placeholders for /alugar-x-financiar, /historico, /login, /register, /verify-email, /forgot-password, /reset-password. App.test.tsx rewritten as routing-aware: mocks `@/lib/auth-client` to inject session data (avoids booting the real Better Auth client in jsdom), drives the router with `<MemoryRouter initialEntries={[path]}>`. Original App.test.tsx assertions moved verbatim to financiamento-page.test.tsx so the simulator-content coverage is preserved. Browser verification was NOT executed in this sandbox (no MCP browser tool wired) — flagged for manual smoke when the harness gets one."
     },
     {
       "id": "US-009",

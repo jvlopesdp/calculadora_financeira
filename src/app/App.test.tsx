@@ -1,9 +1,26 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
 
-import App from "@/app/App";
+import { AppRoutes } from "@/app/routes";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SimulationProvider } from "@/features/simulator/hooks/simulation-provider";
+
+const useSessionMock = vi.fn();
+
+vi.mock("@/lib/auth-client", () => ({
+  authClient: {
+    useSession: () => useSessionMock(),
+  },
+}));
 
 type MediaQueryListener = (event: MediaQueryListEvent) => void;
 
@@ -25,20 +42,36 @@ function stubMatchMedia(prefersDark: boolean) {
   });
 }
 
-function renderApp() {
+function setSession(value: {
+  data: unknown;
+  isPending: boolean;
+  error?: Error | null;
+}) {
+  (useSessionMock as Mock).mockReturnValue({
+    data: value.data,
+    isPending: value.isPending,
+    error: value.error ?? null,
+  });
+}
+
+function renderAt(path: string) {
   return render(
     <ThemeProvider>
       <SimulationProvider>
-        <App />
+        <MemoryRouter initialEntries={[path]}>
+          <AppRoutes />
+        </MemoryRouter>
       </SimulationProvider>
     </ThemeProvider>,
   );
 }
 
-describe("App shell", () => {
+describe("AppRoutes", () => {
   beforeEach(() => {
     stubMatchMedia(false);
     document.documentElement.classList.remove("dark");
+    useSessionMock.mockReset();
+    setSession({ data: null, isPending: false });
   });
 
   afterEach(() => {
@@ -46,72 +79,94 @@ describe("App shell", () => {
     document.documentElement.classList.remove("dark");
   });
 
-  it("renders the header title and theme toggle", () => {
-    renderApp();
+  it("redirects root to /financiamento", () => {
+    renderAt("/");
     expect(
-      screen.getByRole("heading", { level: 1, name: /simulador de financiamento/i }),
+      screen.getByRole("heading", {
+        level: 1,
+        name: /simulador de financiamento/i,
+      }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /modo (escuro|claro)/i }),
-    ).toBeInTheDocument();
-  });
-
-  it("renders all section card placeholders in order", () => {
-    renderApp();
-    const sectionTitles = [
-      "Premissas gerais",
-      "Financiamento",
-      "Pagamento extra",
-      "Aluguel vs. compra",
-      "Resumo dos resultados",
-      "Tabela de amortização",
-      "Gráficos",
-      "Exportar",
-    ];
-    const rendered = screen
-      .getAllByRole("heading", { level: 3 })
-      .map((node) => node.textContent);
-    expect(rendered).toEqual(sectionTitles);
-  });
-
-  it("shows a pt-BR empty-state body in placeholder cards", () => {
-    renderApp();
-    const emptyStates = screen.getAllByText(/preencha os dados para simular/i);
-    expect(emptyStates.length).toBeGreaterThanOrEqual(3);
-    expect(
-      screen.getByText(/informe um valor extra para simular/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/preencha os dados para habilitar a exportação/i),
+      screen.getByRole("heading", { level: 3, name: /premissas gerais/i }),
     ).toBeInTheDocument();
   });
 
-  it("uses theme tokens (bg-card, border-border) on every card", () => {
-    const { container } = renderApp();
-    const cards = container.querySelectorAll("div.bg-card");
-    expect(cards.length).toBeGreaterThanOrEqual(8);
-    cards.forEach((card) => {
-      expect(card.className).toMatch(/bg-card/);
-      expect(card.className).toMatch(/text-card-foreground/);
-      expect(card.className).toMatch(/border-border/);
+  it("renders /financiamento under the app shell without requiring auth", () => {
+    renderAt("/financiamento");
+    expect(
+      screen.getByRole("heading", { level: 3, name: /premissas gerais/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders /alugar-x-financiar under the app shell without requiring auth", () => {
+    renderAt("/alugar-x-financiar");
+    expect(
+      screen.getByRole("heading", { level: 3, name: /alugar x financiar/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("redirects unauthenticated /historico to /login", () => {
+    setSession({ data: null, isPending: false });
+    renderAt("/historico");
+    expect(
+      screen.getByRole("heading", { level: 3, name: /^entrar$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a loading state on /historico while session is pending", () => {
+    setSession({ data: null, isPending: true });
+    renderAt("/historico");
+    expect(screen.getByRole("status")).toHaveTextContent(/carregando/i);
+  });
+
+  it("renders /historico content when authenticated", () => {
+    setSession({
+      data: {
+        user: {
+          id: "u_1",
+          email: "user@example.com",
+          name: "Usuário",
+          emailVerified: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        session: {
+          id: "s_1",
+          userId: "u_1",
+          token: "t",
+          expiresAt: new Date(Date.now() + 60_000),
+          ipAddress: "127.0.0.1",
+          userAgent: "test",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+      isPending: false,
     });
+    renderAt("/historico");
+    expect(
+      screen.getByRole("heading", { level: 3, name: /^histórico$/i }),
+    ).toBeInTheDocument();
   });
 
-  it("renders a sticky header with a subtle shadow", () => {
-    const { container } = renderApp();
-    const header = container.querySelector("header");
-    expect(header).not.toBeNull();
-    expect(header?.className).toMatch(/sticky/);
-    expect(header?.className).toMatch(/top-0/);
-    expect(header?.className).toMatch(/shadow/);
+  it("renders public auth routes with the auth layout (no app shell)", () => {
+    renderAt("/login");
+    expect(
+      screen.getByRole("heading", { level: 3, name: /^entrar$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", {
+        level: 1,
+        name: /simulador de financiamento/i,
+      }),
+    ).not.toBeInTheDocument();
   });
 
-  it("uses a 12-column grid layout above md breakpoint", () => {
-    const { container } = renderApp();
-    const grid = container.querySelector("main > div");
-    expect(grid).not.toBeNull();
-    expect(grid?.className).toMatch(/md:grid/);
-    expect(grid?.className).toMatch(/md:grid-cols-12/);
-    expect(grid?.className).toMatch(/flex-col/);
+  it("renders the 404 page for unknown routes", () => {
+    renderAt("/this-route-does-not-exist");
+    expect(
+      screen.getByRole("heading", { level: 1, name: /página não encontrada/i }),
+    ).toBeInTheDocument();
   });
 });
