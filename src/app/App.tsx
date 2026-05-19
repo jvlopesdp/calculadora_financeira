@@ -11,6 +11,7 @@ import { InstallmentCompositionChart } from "@/features/simulator/components/cha
 import { InterestSavingsChart } from "@/features/simulator/components/charts/interest-savings-chart";
 import { NetWorthChart } from "@/features/simulator/components/charts/net-worth-chart";
 import { OutstandingBalanceChart } from "@/features/simulator/components/charts/outstanding-balance-chart";
+import { ExportCard } from "@/features/simulator/components/export-card";
 import { ExtraPaymentCard } from "@/features/simulator/components/extra-payment-card";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
 import { RentVsBuyCard } from "@/features/simulator/components/rent-vs-buy-card";
@@ -98,12 +99,7 @@ function App() {
             </CardContent>
           </Card>
 
-          <PlaceholderCard
-            className="md:col-span-12"
-            title="Exportar"
-            description="Baixe a simulação completa em Excel."
-            emptyState="Preencha os dados para habilitar a exportação"
-          />
+          <ExportCard />
         </div>
       </main>
     </div>
