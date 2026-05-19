@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 
 import { sharedAuthOptions } from "./auth-options";
 import { sendEmail } from "./email";
@@ -7,6 +8,24 @@ import {
   verifyEmailTemplate,
 } from "./email-templates";
 import type { Env } from "./env";
+import { verifyTurnstile } from "./turnstile";
+
+const TURNSTILE_PROTECTED_PATHS = new Set<string>([
+  "/sign-up/email",
+  "/sign-in/email",
+]);
+
+function extractRemoteIp(headers: Headers | undefined): string | undefined {
+  if (!headers) return undefined;
+  const cf = headers.get("cf-connecting-ip");
+  if (cf) return cf;
+  const xff = headers.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return undefined;
+}
 
 /**
  * Build a Better Auth instance bound to the current request's environment.
@@ -47,6 +66,25 @@ export function createAuth(env: Env) {
           env,
         );
       },
+    },
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (!ctx.path || !TURNSTILE_PROTECTED_PATHS.has(ctx.path)) {
+          return;
+        }
+        const body = (ctx.body ?? {}) as Record<string, unknown>;
+        const rawToken = body.turnstileToken;
+        const token = typeof rawToken === "string" ? rawToken : "";
+        const remoteIp = extractRemoteIp(ctx.request?.headers);
+        const ok = await verifyTurnstile(token, env, remoteIp);
+        if (!ok) {
+          throw new APIError("BAD_REQUEST", {
+            message:
+              "Verificação anti-bot inválida. Recarregue a página e tente novamente.",
+            code: "TURNSTILE_INVALID",
+          });
+        }
+      }),
     },
   });
 }

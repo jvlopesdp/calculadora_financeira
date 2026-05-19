@@ -116,8 +116,8 @@
         "Tests pass"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "`verifyTurnstile(token, env, remoteIp?)` lives in `src/server/turnstile.ts` and POSTs to `https://challenges.cloudflare.com/turnstile/v0/siteverify` as `application/x-www-form-urlencoded` (URLSearchParams). Returns `true` immediately when `env.TURNSTILE_SECRET_KEY` is empty (dev bypass) with a console.warn; returns `false` for empty tokens, success=false, and any thrown fetch error (fail-closed). Wired into Better Auth via `hooks.before = createAuthMiddleware(...)` imported from `better-auth/api`. The hook matches `ctx.path === '/sign-up/email' | '/sign-in/email'`, reads `ctx.body.turnstileToken` (the BEFORE-hook ctx.body is the RAW parsed body from the router, not yet narrowed by the endpoint's zod schema — confirmed in `better-call/dist/router.mjs` + `to-auth-endpoints.mjs`, so unknown fields like `turnstileToken` survive even though sign-in's body schema would strip them later). On failure throws `new APIError('BAD_REQUEST', { message, code: 'TURNSTILE_INVALID' })` so Better Auth converts it to a 400 JSON response. Remote IP pulled from `cf-connecting-ip` first, falling back to `x-forwarded-for` first hop. Tests mock `globalThis.fetch` via `vi.spyOn` — initialize the spy in `beforeEach` to a module-scope `let` (otherwise `restoreAllMocks` orphans the reference, which silently caused the spy to disconnect during the first iteration of the test code). 6 vitest cases covering: success path + payload assertion, success=false, fetch throws, dev bypass (empty key), empty token early-return, remoteip propagated."
     },
     {
       "id": "US-007",

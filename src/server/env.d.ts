@@ -15,4 +15,6 @@ export interface Env {
   BETTER_AUTH_URL: string;
   /** Resend API key for transactional emails. Empty/missing → logs instead of sending (dev). */
   RESEND_API_KEY?: string;
+  /** Cloudflare Turnstile secret key for server-side siteverify. Empty/missing → bypass (dev). */
+  TURNSTILE_SECRET_KEY?: string;
 }
