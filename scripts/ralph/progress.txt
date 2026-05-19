@@ -3,11 +3,14 @@ Started: Mon May 18 19:39:03 PDT 2026
 
 ## Codebase Patterns
 - **Worker vs SPA TypeScript split**: `src/server/` is excluded from `tsconfig.app.json` and typechecked via `tsconfig.server.json` with `types: ["@cloudflare/workers-types"]`. This keeps DOM lib out of the worker compile and avoids conflicting global types. Add new server code under `src/server/` and it gets picked up automatically.
-- **Worker bindings live in `src/server/env.d.ts`** (`interface Env`). Hono routes type the env via `new Hono<{ Bindings: Env }>()`.
+- **Worker bindings live in `src/server/env.d.ts`** (`interface Env`). Hono routes type the env via `new Hono<{ Bindings: Env }>()`. Add every new binding/secret here _and_ wire it into `wrangler.jsonc` (`vars` for plain values, `wrangler secret put` for secrets, `d1_databases` for D1).
 - **Build output structure under cloudflare/vite-plugin**: `bun run build` writes the SPA to `dist/client/` and the bundled worker + generated wrangler config to `dist/calculadora_financeira/`. The plugin rewrites paths so `wrangler deploy` uses the redirected config — never point wrangler at the source `wrangler.jsonc` directly.
 - **Cloudflare custom_domain routes do NOT accept wildcards or paths.** Use `{ pattern: "calculadorafinanceira.app", custom_domain: true }`, not `calculadorafinanceira.app/*`.
 - **Node 20 in the sandbox can't run wrangler directly** (needs v22). Always invoke via `bunx --bun wrangler ...` so the bun-bundled runtime is used.
 - The `migrations/` directory must exist (even if empty with a `.gitkeep`) because `wrangler.jsonc` references `migrations_dir: "migrations"`.
+- **Better Auth on D1**: `betterAuth({ database: env.DB })` is enough — the kysely-adapter auto-detects D1 via `batch/exec/prepare` and dynamically loads `D1SqliteDialect`. No `{ provider: 'd1' }` wrapper needed in v1.6.x. Build a fresh `createAuth(env)` per Hono request (no module-level singletons in Workers — each request has its own bindings).
+- **Shared auth options pattern**: keep plugin/session/email options in `src/server/auth-options.ts` (no env deps) and re-use them in both `src/server/auth.ts` (Worker, `database: env.DB`) and `auth.config.ts` (CLI, in-memory SQLite). Prevents the CLI-generated schema from drifting from the runtime config.
+- **`@better-auth/cli generate` needs a real Kysely-compatible DB** because it calls `db.introspection.getTables()`. Bun runs the CLI through jiti/Node, so `bun:sqlite` is unavailable there; the fallback is to install `better-sqlite3` (native build) or hand-write the SQL using `@better-auth/core/db/get-tables` as the source of truth. The hand-written `0001_better_auth.sql` mirrors the Kysely SQLite output exactly: lowercase DDL keywords, double-quoted identifiers, `text`/`integer`/`date` types, `references "user" ("id") on delete cascade`, indexes appended as `create index "<table>_<col>_idx"`.
 
 ---
 
@@ -29,4 +32,26 @@ Started: Mon May 18 19:39:03 PDT 2026
   - The `cloudflare` plugin moves the SPA from `dist/` to `dist/client/`. If any existing tooling assumed `dist/index.html` is the SPA index, it now needs updating to `dist/client/index.html` (currently no code depends on this).
   - `custom_domain` routes cannot contain `/*` or path segments — Cloudflare validates at deploy time. PRD wording was technically invalid; corrected in implementation and noted in PRD `notes`.
   - `assets` + `routes` work together: the asset binding handles static files and the SPA fallback (`not_found_handling: "single-page-application"`); the worker handles `/api/*` and any explicit route handler that returns before falling through.
+---
+
+## 2026-05-18 - US-002
+- Mounted Better Auth on the Worker with D1 storage and added the initial migration.
+- Files changed:
+  - `src/server/auth.ts` (new): `createAuth(env: Env)` factory wrapping `betterAuth({ ...sharedAuthOptions, database: env.DB, secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL })`. Exports `Auth` type.
+  - `src/server/auth-options.ts` (new): `sharedAuthOptions` (emailAndPassword w/ requireEmailVerification + 1h reset token TTL, 30-day session w/ 1-day rolling update, trustedOrigins for localhost:5173 + calculadorafinanceira.app). Reused by both runtime and CLI configs.
+  - `src/server/index.ts`: added `app.on(["POST","GET"], "/api/auth/*", (c) => createAuth(c.env).handler(c.req.raw))` before the `/api/*` 404 fallback.
+  - `src/server/env.d.ts`: added `BETTER_AUTH_SECRET: string` and `BETTER_AUTH_URL: string` to the `Env` interface.
+  - `auth.config.ts` (new, project root): CLI-only Better Auth instance using `new Database(":memory:")` from `bun:sqlite`. Tagged with `// @ts-ignore` because the file isn't part of any tsconfig include (Bun runs it directly).
+  - `migrations/0001_better_auth.sql` (new): hand-written DDL for `user`, `session`, `account`, `verification` + indexes (`session_userId_idx`, `account_userId_idx`, `verification_identifier_idx`). Matches Kysely SQLite's `compile().sql` output for the schema returned by `@better-auth/core`'s `getAuthTables`.
+  - `docs/schema.md` (new): table/column reference for every D1 migration. Section for `0001_better_auth.sql` with field types and FKs; ends with a "Regenerating" note explaining the bun-sqlite/native-binding gotcha.
+  - `package.json`: added `better-auth` dep + `@better-auth/cli` devDep; new scripts `db:generate`, `db:migrate:local`, `db:migrate:remote`.
+- Quality checks: `bun run typecheck` ✓, `bun run lint` ✓, `bun run test` (352/352) ✓, `bun run build` ✓, `bunx --bun wrangler deploy --dry-run` ✓ (bundled output now 1505 KiB; pulled in `d1-sqlite-dialect`, `bun-sqlite-dialect`, `node-sqlite-dialect` as lazy chunks — expected from better-auth's kysely adapter).
+- **Learnings for future iterations:**
+  - The kysely-adapter's D1 path is detected purely by duck-typing the binding (`"batch" in db && "exec" in db && "prepare" in db`). Passing `env.DB` directly works in v1.6.x; the PRD's `{ provider: 'd1', binding: env.DB }` syntax is not supported and will type-error. Update later PRD entries that still use that form (e.g. US-004's surrounding context).
+  - `bun add @better-auth/cli` triggers a peer install of `better-sqlite3`, which requires `node-gyp` and a CXX toolchain. Use `--ignore-scripts` to install the CLI in sandboxes without native build deps; the CLI's `generate` command still won't work without a real SQLite (bun-sqlite OR better-sqlite3 native), but the package install succeeds.
+  - When hand-writing migrations to match the better-auth schema, use `@better-auth/core/dist/db/get-tables.mjs` as the source of truth. Each field has `type` (string|boolean|number|date|json), `unique`, `required`, `references`, `index`, and a `fieldName` (camelCase). Boolean → `integer`, date → `date`, string|references → `text`. Indexes only emit for fields with `index: true` (and inherit `unique` if both are set).
+  - `@better-auth/cli/dist/generators-*.mjs::generateKyselySchema` joins compiled statements with `;\n\n` and ends the file with `;`. My hand-written SQL uses one statement per `CREATE TABLE`/`CREATE INDEX` separated by blank lines — wrangler's SQL parser handles both forms.
+  - The Worker bundle pulls in three SQLite dialects (D1, Bun, Node) because the kysely-adapter `await import()`s them conditionally. That's fine on Workers (dead-code at runtime), but bundle size jumps ~1.4 MiB. Watch this if we get near the 10 MiB free-tier limit.
+  - `useDefineForClassFields` + `noUncheckedSideEffectImports` in tsconfig.app.json conflict with raw side-effect imports; keep server-only code in `src/server/` so it lands in `tsconfig.server.json` (which doesn't have the DOM lib and so won't reject worker types).
+  - The custom auth.config.ts at the repo root is NOT included in any tsconfig (intentional — Bun runs it directly). If you ever need to typecheck it, add a fourth project ref; for now `@ts-ignore` on the `bun:sqlite` import is sufficient.
 ---

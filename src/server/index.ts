@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { createAuth } from "./auth";
 import type { Env } from "./env";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -9,6 +10,10 @@ app.get("/api/health", (c) =>
     ok: true,
     environment: c.env.ENVIRONMENT ?? "production",
   }),
+);
+
+app.on(["POST", "GET"], "/api/auth/*", (c) =>
+  createAuth(c.env).handler(c.req.raw),
 );
 
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));

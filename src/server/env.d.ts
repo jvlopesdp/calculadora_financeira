@@ -9,4 +9,8 @@ export interface Env {
   EMAIL_FROM: string;
   /** Deployment environment label (e.g. "production", "preview", "development") */
   ENVIRONMENT?: string;
+  /** Secret used by Better Auth to sign cookies/tokens */
+  BETTER_AUTH_SECRET: string;
+  /** Public base URL for Better Auth (must match the app origin) */
+  BETTER_AUTH_URL: string;
 }
