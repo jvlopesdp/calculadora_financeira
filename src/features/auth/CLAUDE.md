@@ -31,3 +31,15 @@ zod schemas under `schemas/`.
   invokes `onToken` so tests stay deterministic and don't need the real
   Turnstile script. Wrap in `<MemoryRouter>` + `<Routes>` so navigation
   assertions can verify the destination page.
+- **Password reset method names**: the Better Auth v1.6.x client uses
+  `authClient.requestPasswordReset({email, redirectTo})` and
+  `authClient.resetPassword({newPassword, token})`. There is no
+  top-level `authClient.forgetPassword` — that alias only exists on the
+  email-OTP plugin. Match these names exactly; the dynamic-path proxy
+  in `better-auth/client/proxy.mjs` translates them to
+  `/request-password-reset` and `/reset-password` automatically.
+- **Flash messages between auth pages** use a `?flash=<encoded>` query
+  param read via `useSearchParams`. `/reset-password`'s success path
+  navigates to `/login?flash=<msg>`; `LoginPage` renders the decoded
+  message above the form with `aria-live="polite"`. No global toast
+  system — a single querystring read keeps the auth flow self-contained.

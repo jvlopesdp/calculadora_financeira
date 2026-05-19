@@ -199,6 +199,15 @@ describe("LoginPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the flash querystring message above the form", () => {
+    renderLogin([
+      `/login?flash=${encodeURIComponent("Senha redefinida com sucesso. Entre com sua nova senha.")}`,
+    ]);
+    expect(
+      screen.getByText(/senha redefinida com sucesso/i),
+    ).toBeInTheDocument();
+  });
+
   it("translates TURNSTILE_INVALID errors to pt-BR", async () => {
     signInEmailMock.mockResolvedValueOnce({
       data: null,

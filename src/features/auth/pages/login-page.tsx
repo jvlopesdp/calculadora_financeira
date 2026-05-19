@@ -1,7 +1,12 @@
 import { useCallback, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -91,6 +96,8 @@ function resolveRedirectTarget(state: unknown): string {
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const flashMessage = searchParams.get("flash");
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<LoginErrorKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -186,6 +193,15 @@ export function LoginPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {flashMessage ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="mb-4 text-sm text-emerald-600 dark:text-emerald-400"
+          >
+            {flashMessage}
+          </p>
+        ) : null}
         <Form {...form}>
           <form className="space-y-4" onSubmit={onSubmit} noValidate>
             <FormField
