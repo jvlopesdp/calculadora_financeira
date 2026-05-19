@@ -105,13 +105,12 @@ describe("Financiamento page", () => {
     });
   });
 
-  it("renders a sticky header with a subtle shadow", () => {
+  it("renders the dashboard-01 site header with a bottom border", () => {
     const { container } = renderPage();
     const header = container.querySelector("header");
     expect(header).not.toBeNull();
-    expect(header?.className).toMatch(/sticky/);
-    expect(header?.className).toMatch(/top-0/);
-    expect(header?.className).toMatch(/shadow/);
+    expect(header?.className).toMatch(/border-b/);
+    expect(header?.className).toMatch(/h-\(--header-height\)/);
   });
 
   it("uses a 12-column grid layout above md breakpoint", () => {

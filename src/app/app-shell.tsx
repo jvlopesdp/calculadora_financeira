@@ -1,27 +1,38 @@
 import { Outlet } from "react-router-dom";
 
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SiteHeader } from "@/components/site-header";
+import {
+  SidebarInset,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
 
 /**
- * Placeholder shell used while the real dashboard-01 layout (sidebar + site
- * header) is not in place yet. US-013 replaces this with the shadcn dashboard
- * shell; until then it preserves the visual chrome the MVP shipped with.
+ * Authenticated app shell scaffolded from the shadcn `dashboard-01` block.
+ * Renders the persistent sidebar (drawer on mobile) and site header around the
+ * routed `<Outlet/>`. Auth routes use `AuthLayout` and bypass this shell.
  */
 export function AppShell() {
   return (
-    <div className="bg-background text-foreground min-h-screen">
-      <header className="bg-background/95 border-border supports-[backdrop-filter]:bg-background/75 sticky top-0 z-40 border-b shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-screen-xl items-center justify-between px-4 py-4 md:px-6">
-          <h1 className="font-serif text-xl font-bold md:text-2xl">
-            Simulador de Financiamento
-          </h1>
-          <ThemeToggle />
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "calc(var(--spacing) * 72)",
+          "--header-height": "calc(var(--spacing) * 12)",
+        } as React.CSSProperties
+      }
+    >
+      <AppSidebar variant="inset" />
+      <SidebarInset>
+        <SiteHeader />
+        <div className="flex flex-1 flex-col">
+          <div className="@container/main flex flex-1 flex-col gap-2">
+            <div className="flex flex-col gap-4 px-4 py-4 md:gap-6 md:py-6 lg:px-6">
+              <Outlet />
+            </div>
+          </div>
         </div>
-      </header>
-
-      <main className="mx-auto max-w-screen-xl px-4 py-8 md:px-6 md:py-10">
-        <Outlet />
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
