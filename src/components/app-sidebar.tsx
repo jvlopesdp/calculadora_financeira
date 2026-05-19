@@ -1,15 +1,12 @@
 import {
   IconCalculator,
-  IconChartBar,
   IconHistory,
-  IconHome,
   IconInnerShadowTop,
   IconScale,
 } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 
-import { NavDocuments } from "@/components/nav-documents";
-import { NavMain } from "@/components/nav-main";
+import { NavMain, type NavMainItem } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
@@ -20,19 +17,20 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { useCurrentUser } from "@/lib/use-current-user";
 
-const navMain = [
-  { title: "Início", url: "/", icon: IconHome },
+const baseNavMain: NavMainItem[] = [
   { title: "Financiamento", url: "/financiamento", icon: IconCalculator },
-  { title: "Alugar x Financiar", url: "/alugar-x-financiar", icon: IconScale },
   { title: "Histórico", url: "/historico", icon: IconHistory },
-];
-
-const navDocuments = [
-  { title: "Gráficos", url: "/financiamento", icon: IconChartBar },
+  { title: "Alugar x Financiar", url: "/alugar-x-financiar", icon: IconScale },
 ];
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
+  const { user } = useCurrentUser();
+  const navMain = user
+    ? baseNavMain
+    : baseNavMain.filter((item) => item.url !== "/historico");
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -54,7 +52,6 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={navMain} />
-        <NavDocuments items={navDocuments} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />
