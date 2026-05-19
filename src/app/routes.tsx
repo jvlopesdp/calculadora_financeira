@@ -4,6 +4,7 @@ import { AppShell } from "@/app/app-shell";
 import { AuthLayout } from "@/app/auth-layout";
 import { NotFoundPage } from "@/app/not-found-page";
 import { ProtectedRoute } from "@/app/protected-route";
+import { CheckEmailPage } from "@/features/auth/pages/check-email-page";
 import { ForgotPasswordPage } from "@/features/auth/pages/forgot-password-page";
 import { LoginPage } from "@/features/auth/pages/login-page";
 import { RegisterPage } from "@/features/auth/pages/register-page";
@@ -21,6 +22,7 @@ export function AppRoutes() {
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/check-email" element={<CheckEmailPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />

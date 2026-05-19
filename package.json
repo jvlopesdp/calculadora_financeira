@@ -23,6 +23,7 @@
     "@fontsource/libre-baskerville": "^5.1.0",
     "@fontsource/poppins": "^5.1.0",
     "@hookform/resolvers": "^3.9.1",
+    "@marsidev/react-turnstile": "^1.5.2",
     "@radix-ui/react-slot": "^1.1.1",
     "better-auth": "^1.6.11",
     "class-variance-authority": "^0.7.1",
