@@ -56,7 +56,7 @@ describe("Financiamento page", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: /simulador de financiamento/i,
+        name: /^financiamento$/i,
       }),
     ).toBeInTheDocument();
     expect(

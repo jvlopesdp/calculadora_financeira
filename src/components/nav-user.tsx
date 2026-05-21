@@ -69,8 +69,11 @@ export function NavUser() {
   const initials = getInitials(user.name, user.email);
 
   async function handleSignOut() {
-    await authClient.signOut();
-    navigate("/login");
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => navigate("/login"),
+      },
+    });
   }
 
   return (

@@ -84,7 +84,7 @@ describe("AppRoutes", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: /simulador de financiamento/i,
+        name: /^financiamento$/i,
       }),
     ).toBeInTheDocument();
     expect(
@@ -158,7 +158,7 @@ describe("AppRoutes", () => {
     expect(
       screen.queryByRole("heading", {
         level: 1,
-        name: /simulador de financiamento/i,
+        name: /^financiamento$/i,
       }),
     ).not.toBeInTheDocument();
   });
