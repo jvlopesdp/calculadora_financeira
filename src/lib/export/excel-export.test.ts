@@ -93,13 +93,49 @@ describe("buildResumoSheet", () => {
 
   it("adds extra-payment rows only when extraMonthly > 0", () => {
     const labelsNoExtra = firstColumn(buildResumoSheet(payload()));
-    expect(labelsNoExtra).not.toContain("Pagamento extra mensal");
+    expect(labelsNoExtra).not.toContain("Parcela mensal desejada");
+    expect(labelsNoExtra).not.toContain("Extra mensal derivado");
 
     const labelsWithExtra = firstColumn(
       buildResumoSheet(payload({ extraMonthly: 1000, extraStrategy: "term" })),
     );
-    expect(labelsWithExtra).toContain("Pagamento extra mensal");
+    expect(labelsWithExtra).toContain("Parcela mensal desejada");
+    expect(labelsWithExtra).toContain("Extra mensal derivado");
     expect(labelsWithExtra).toContain("Economia em juros");
+  });
+
+  it("reports the derived target monthly payment as base PRICE installment + extra", () => {
+    const rows = buildResumoSheet(
+      payload({ extraMonthly: 1000, extraStrategy: "term" }),
+    );
+    const targetRow = rows.find(
+      (r) => isStringCell(r[0]) && r[0].v === "Parcela mensal desejada",
+    );
+    expect(targetRow).toBeDefined();
+    const targetCell = targetRow?.[1];
+    expect(isNumberCell(targetCell!)).toBe(true);
+    if (!isNumberCell(targetCell!)) throw new Error("expected number");
+
+    const engineSchedule = generatePriceSchedule({
+      principal: new Decimal(400_000),
+      monthlyRate: new Decimal("0.01"),
+      termMonths: 360,
+    });
+    const expected = engineSchedule[0].installment
+      .toDecimalPlaces(2)
+      .plus(1000)
+      .toDecimalPlaces(2)
+      .toNumber();
+    expect(targetCell.v).toBeCloseTo(expected, 2);
+    expect(targetCell.z).toBe(CURRENCY_FORMAT);
+
+    const derivedExtraRow = rows.find(
+      (r) => isStringCell(r[0]) && r[0].v === "Extra mensal derivado",
+    );
+    const derivedExtraCell = derivedExtraRow?.[1];
+    expect(isNumberCell(derivedExtraCell!)).toBe(true);
+    if (!isNumberCell(derivedExtraCell!)) throw new Error("expected number");
+    expect(derivedExtraCell.v).toBe(1000);
   });
 
   it("adds rent-vs-buy rows when rentVsBuy state is present", () => {
@@ -132,6 +168,17 @@ describe("buildPremissasSheet", () => {
     expect(labels).toContain("Aluguel mensal");
     expect(labels).toContain("Horizonte (meses)");
     expect(labels).toContain("Rendimento anual do investimento");
+  });
+
+  it("adds target-payment rows when extraMonthly > 0", () => {
+    const labels = firstColumn(
+      buildPremissasSheet(
+        payload({ extraMonthly: 1000, extraStrategy: "term" }),
+      ),
+    );
+    expect(labels).toContain("Parcela mensal desejada");
+    expect(labels).toContain("Extra mensal derivado");
+    expect(labels).toContain("Estratégia de pagamento extra");
   });
 });
 
@@ -167,32 +214,68 @@ describe("buildExtraTermSheet", () => {
     const rows = buildExtraTermSheet(payload());
     expect(rows.length).toBe(1);
     expect(isStringCell(rows[0][0]) && rows[0][0].v).toMatch(
-      /configure um pagamento extra/i,
+      /informe uma parcela mensal desejada/i,
     );
   });
 
-  it("emits header + schedule when extraMonthly > 0", () => {
+  it("emits header + schedule with the parcela desejada + extra derivado columns", () => {
     const rows = buildExtraTermSheet(
       payload({ extraMonthly: 1000, extraStrategy: "term" }),
     );
-    expect(rows[0]).toHaveLength(7);
-    expect(isStringCell(rows[0][2]) && rows[0][2].v).toBe("Pagamento extra");
+    expect(rows[0]).toHaveLength(9);
+    expect(isStringCell(rows[0][1]) && rows[0][1].v).toBe("Parcela desejada");
+    expect(isStringCell(rows[0][2]) && rows[0][2].v).toBe("Extra derivado");
+    expect(isStringCell(rows[0][3]) && rows[0][3].v).toBe("Parcela base");
+    expect(isStringCell(rows[0][4]) && rows[0][4].v).toBe("Pagamento extra");
     expect(rows.length).toBeGreaterThan(2);
 
     const firstData = rows[1];
+    const engineSchedule = generatePriceSchedule({
+      principal: new Decimal(400_000),
+      monthlyRate: new Decimal("0.01"),
+      termMonths: 360,
+    });
+    const expectedTarget = engineSchedule[0].installment
+      .toDecimalPlaces(2)
+      .plus(1000)
+      .toDecimalPlaces(2)
+      .toNumber();
+    expect(isNumberCell(firstData[1]) && firstData[1].v).toBeCloseTo(
+      expectedTarget,
+      2,
+    );
     expect(isNumberCell(firstData[2]) && firstData[2].v).toBe(1000);
+    expect(isNumberCell(firstData[4]) && firstData[4].v).toBe(1000);
+  });
+
+  it("keeps the parcela desejada column constant across all rows", () => {
+    const rows = buildExtraTermSheet(
+      payload({ extraMonthly: 1000, extraStrategy: "term" }),
+    );
+    const firstTarget = isNumberCell(rows[1][1]) ? rows[1][1].v : null;
+    expect(firstTarget).not.toBeNull();
+    for (let i = 1; i < rows.length; i++) {
+      const cell = rows[i][1];
+      expect(isNumberCell(cell)).toBe(true);
+      if (isNumberCell(cell)) {
+        expect(cell.v).toBe(firstTarget);
+      }
+    }
   });
 });
 
 describe("buildExtraInstallmentSheet", () => {
-  it("emits the recomputed installments + extra column", () => {
+  it("emits the recomputed installments with parcela desejada + extra derivado columns", () => {
     const rows = buildExtraInstallmentSheet(
       payload({ extraMonthly: 1500, extraStrategy: "installment" }),
     );
-    expect(rows[0]).toHaveLength(7);
+    expect(rows[0]).toHaveLength(9);
+    expect(isStringCell(rows[0][1]) && rows[0][1].v).toBe("Parcela desejada");
+    expect(isStringCell(rows[0][2]) && rows[0][2].v).toBe("Extra derivado");
     expect(rows.length).toBeGreaterThan(2);
     const firstData = rows[1];
     expect(isNumberCell(firstData[2]) && firstData[2].v).toBe(1500);
+    expect(isNumberCell(firstData[4]) && firstData[4].v).toBe(1500);
   });
 });
 
@@ -260,8 +343,8 @@ describe("SHEET_NAMES", () => {
       "Resumo",
       "Premissas",
       "Financiamento Base",
-      "Extra (Reduzir Prazo)",
-      "Extra (Reduzir Parcela)",
+      "Parcela Desejada (Prazo)",
+      "Parcela Desejada (Parcela)",
       "Aluguel vs Compra",
       "Tabela Comparativa",
     ]);
@@ -338,8 +421,8 @@ describe("exportSimulation", () => {
       "Resumo",
       "Premissas",
       "Financiamento Base",
-      "Extra (Reduzir Prazo)",
-      "Extra (Reduzir Parcela)",
+      "Parcela Desejada (Prazo)",
+      "Parcela Desejada (Parcela)",
       "Aluguel vs Compra",
       "Tabela Comparativa",
     ]);

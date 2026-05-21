@@ -7,13 +7,12 @@ import {
 import {
   type FinancingInputs,
   type ScheduleRow,
+  roundMoney,
   summarizeSchedule,
 } from "@/core/finance/financial-types";
-import {
-  applyPrepaymentReduceInstallment,
-  applyPrepaymentReduceTerm,
-  type PrepaymentResult,
-} from "@/core/finance/prepayment";
+import { resolveExtraSchedule } from "@/core/finance/extra-schedule";
+import type { PrepaymentResult } from "@/core/finance/prepayment";
+import { calculatePriceInstallment } from "@/core/finance/price-calculator";
 import {
   compareRentVsBuy,
   type RentVsBuyInputs,
@@ -38,14 +37,16 @@ type NumberCell = { v: number; t: "n"; z?: string };
 export type ExportCell = string | StringCell | NumberCell;
 
 // Sheet names truncated to fit Excel's 31-char ceiling — SheetJS throws on
-// any name longer than that, so the PRD's "Amortização Extra (...)" names
-// cannot be used verbatim. Kept short and clear instead.
+// any name longer than that, so the PRD's "Financiamento + Parcela Desejada
+// (Reduzir Prazo)" form cannot be used verbatim. Kept short and clear:
+// "Parcela Desejada (Prazo)" / "(Parcela)" — the strategy is implied because
+// "Reduzir" is the only operation, and the column headers spell it out anyway.
 export const SHEET_NAMES = [
   "Resumo",
   "Premissas",
   "Financiamento Base",
-  "Extra (Reduzir Prazo)",
-  "Extra (Reduzir Parcela)",
+  "Parcela Desejada (Prazo)",
+  "Parcela Desejada (Parcela)",
   "Aluguel vs Compra",
   "Tabela Comparativa",
 ] as const;
@@ -117,9 +118,23 @@ function computeExtra(
 ): ExtraResults {
   const extra = new Decimal(extraMonthly);
   return {
-    reduceTerm: applyPrepaymentReduceTerm(inputs, extra),
-    reduceInstallment: applyPrepaymentReduceInstallment(inputs, extra),
+    reduceTerm: resolveExtraSchedule(inputs, extra, "term"),
+    reduceInstallment: resolveExtraSchedule(inputs, extra, "installment"),
   };
+}
+
+function derivedTargetMonthlyPayment(
+  inputs: FinancingInputs,
+  extraMonthly: number,
+): Decimal {
+  const basePriceInstallment = roundMoney(
+    calculatePriceInstallment({
+      principal: inputs.principal,
+      monthlyRate: inputs.monthlyRate,
+      termMonths: inputs.termMonths,
+    }),
+  );
+  return roundMoney(basePriceInstallment.plus(extraMonthly));
 }
 
 function tryRentVsBuy(
@@ -174,8 +189,10 @@ export function buildResumoSheet(payload: ExportPayload): ExportCell[][] {
     const extra = computeExtra(inputs, extraMonthly);
     const active =
       extraStrategy === "installment" ? extra.reduceInstallment : extra.reduceTerm;
+    const target = derivedTargetMonthlyPayment(inputs, extraMonthly);
     rows.push(
-      [txt("Pagamento extra mensal"), money(extraMonthly)],
+      [txt("Parcela mensal desejada"), money(target)],
+      [txt("Extra mensal derivado"), money(extraMonthly)],
       [txt("Estratégia ativa"), txt(strategyLabel(extraStrategy))],
       [txt("Total pago (com extra)"), money(active.summary.totalPaid)],
       [txt("Economia em juros"), money(active.summary.interestSaved)],
@@ -220,8 +237,11 @@ export function buildPremissasSheet(payload: ExportPayload): ExportCell[][] {
   ];
 
   if (extraMonthly !== null && extraMonthly > 0) {
+    const inputs = buildFinancingInputs(financing);
+    const target = derivedTargetMonthlyPayment(inputs, extraMonthly);
     rows.push(
-      [txt("Pagamento extra mensal"), money(extraMonthly)],
+      [txt("Parcela mensal desejada"), money(target)],
+      [txt("Extra mensal derivado"), money(extraMonthly)],
       [txt("Estratégia de pagamento extra"), txt(strategyLabel(extraStrategy))],
     );
   }
@@ -281,21 +301,22 @@ function buildPrepaymentScheduleSheet(
     return [
       [
         txt(
-          "Configure um pagamento extra mensal na simulação para gerar esta planilha.",
+          "Informe uma parcela mensal desejada na simulação para gerar esta planilha.",
         ),
       ],
     ];
   }
   const inputs = buildFinancingInputs(payload.financing);
   const extra = new Decimal(payload.extraMonthly);
-  const result =
-    strategy === "installment"
-      ? applyPrepaymentReduceInstallment(inputs, extra)
-      : applyPrepaymentReduceTerm(inputs, extra);
+  const result = resolveExtraSchedule(inputs, extra, strategy);
+  const target = derivedTargetMonthlyPayment(inputs, payload.extraMonthly);
+  const derivedExtra = new Decimal(payload.extraMonthly);
 
   const rows: ExportCell[][] = [
     [
       txt("Mês"),
+      txt("Parcela desejada"),
+      txt("Extra derivado"),
       txt("Parcela base"),
       txt("Pagamento extra"),
       txt("Pagamento total"),
@@ -307,6 +328,8 @@ function buildPrepaymentScheduleSheet(
   for (const row of result.schedule) {
     rows.push([
       integer(row.month),
+      money(target),
+      money(derivedExtra),
       money(row.baseInstallment),
       money(row.extraPayment),
       money(row.installment),

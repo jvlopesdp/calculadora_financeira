@@ -88,10 +88,10 @@ function formatMonthAxisTick(value: number): string {
 }
 
 export function InstallmentCompositionChart() {
-  const { financing } = useSimulation();
+  const { financing, extraMonthly, extraStrategy } = useSimulation();
   const data = useMemo(
-    () => prepareInstallmentCompositionData(financing),
-    [financing],
+    () => prepareInstallmentCompositionData(financing, extraMonthly, extraStrategy),
+    [financing, extraMonthly, extraStrategy],
   );
 
   if (!data || data.length === 0) {
