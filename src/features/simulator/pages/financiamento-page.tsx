@@ -11,10 +11,10 @@ import { InterestSavingsChart } from "@/features/simulator/components/charts/int
 import { NetWorthChart } from "@/features/simulator/components/charts/net-worth-chart";
 import { OutstandingBalanceChart } from "@/features/simulator/components/charts/outstanding-balance-chart";
 import { ExportCard } from "@/features/simulator/components/export-card";
-import { ExtraPaymentCard } from "@/features/simulator/components/extra-payment-card";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
 import { RentVsBuyCard } from "@/features/simulator/components/rent-vs-buy-card";
 import { ResultsSummaryCard } from "@/features/simulator/components/results-summary-card";
+import { TargetPaymentCard } from "@/features/simulator/components/target-payment-card";
 
 type PlaceholderCardProps = {
   title: string;
@@ -64,7 +64,7 @@ export function FinanciamentoPage() {
         </CardContent>
       </Card>
 
-      <ExtraPaymentCard />
+      <TargetPaymentCard />
 
       <RentVsBuyCard />
 

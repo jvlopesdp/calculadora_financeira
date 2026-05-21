@@ -69,7 +69,7 @@ describe("Financiamento page", () => {
     const sectionTitles = [
       "Premissas gerais",
       "Financiamento",
-      "Pagamento extra",
+      "Parcela mensal desejada",
       "Aluguel vs. compra",
       "Resumo dos resultados",
       "Tabela de amortização",
@@ -87,7 +87,9 @@ describe("Financiamento page", () => {
     const emptyStates = screen.getAllByText(/preencha os dados para simular/i);
     expect(emptyStates.length).toBeGreaterThanOrEqual(3);
     expect(
-      screen.getByText(/informe um valor extra para simular/i),
+      screen.getByText(
+        /preencha os dados do financiamento para informar a parcela desejada/i,
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/preencha os dados para habilitar a exportação/i),
