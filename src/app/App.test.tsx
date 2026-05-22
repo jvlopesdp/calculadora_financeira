@@ -88,14 +88,17 @@ describe("AppRoutes", () => {
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { level: 3, name: /premissas gerais/i }),
+      screen.getByRole("heading", { level: 3, name: /^financiamento$/i }),
     ).toBeInTheDocument();
   });
 
   it("renders /financiamento under the app shell without requiring auth", () => {
     renderAt("/financiamento");
     expect(
-      screen.getByRole("heading", { level: 3, name: /premissas gerais/i }),
+      screen.getByRole("heading", { level: 3, name: /^financiamento$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /exportar excel/i }),
     ).toBeInTheDocument();
   });
 

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ExportCard } from "@/features/simulator/components/export-card";
+import { ExportButton } from "@/features/simulator/components/export-button";
 import { SimulationProvider } from "@/features/simulator/hooks/simulation-provider";
 import { useSimulation } from "@/features/simulator/hooks/simulation-context";
 import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
@@ -35,16 +35,18 @@ function SimulationSeed({
   return null;
 }
 
-function renderCard({ financing = null as FinancingFormValues | null } = {}) {
+function renderButton({
+  financing = null as FinancingFormValues | null,
+} = {}) {
   return render(
     <SimulationProvider>
       <SimulationSeed financing={financing} />
-      <ExportCard />
+      <ExportButton />
     </SimulationProvider>,
   );
 }
 
-describe("ExportCard", () => {
+describe("ExportButton", () => {
   beforeEach(() => {
     mockExportSimulation.mockReset();
     mockExportSimulation.mockResolvedValue(undefined);
@@ -54,26 +56,20 @@ describe("ExportCard", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the section title and empty-state message when financing is missing", () => {
-    renderCard();
-    expect(
-      screen.getByRole("heading", { level: 3, name: /exportar/i }),
-    ).toBeInTheDocument();
+  it("renders the Exportar Excel button disabled with an empty-state hint when no financing", () => {
+    renderButton();
+    const button = screen.getByRole("button", { name: /exportar excel/i });
+    expect(button).toBeDisabled();
+    expect(button.getAttribute("title")).toMatch(
+      /preencha os dados para habilitar a exportação/i,
+    );
     expect(screen.getByTestId("export-empty-state").textContent).toMatch(
       /preencha os dados para habilitar a exportação/i,
     );
   });
 
-  it("disables the Exportar Excel button when financing is missing", () => {
-    renderCard();
-    const button = screen.getByRole("button", {
-      name: /exportar excel/i,
-    });
-    expect(button).toBeDisabled();
-  });
-
   it("enables the button when financing is present", async () => {
-    renderCard({ financing: defaultFinancing });
+    renderButton({ financing: defaultFinancing });
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /exportar excel/i }),
@@ -83,7 +79,7 @@ describe("ExportCard", () => {
   });
 
   it("invokes exportSimulation with the current simulation state when clicked", async () => {
-    renderCard({ financing: defaultFinancing });
+    renderButton({ financing: defaultFinancing });
     const button = await waitFor(() => {
       const btn = screen.getByRole("button", { name: /exportar excel/i });
       expect(btn).not.toBeDisabled();
@@ -106,7 +102,7 @@ describe("ExportCard", () => {
 
   it("shows an error message if exportSimulation rejects", async () => {
     mockExportSimulation.mockRejectedValueOnce(new Error("boom"));
-    renderCard({ financing: defaultFinancing });
+    renderButton({ financing: defaultFinancing });
     const button = await waitFor(() => {
       const btn = screen.getByRole("button", { name: /exportar excel/i });
       expect(btn).not.toBeDisabled();

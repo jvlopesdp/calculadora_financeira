@@ -64,17 +64,15 @@ describe("Financiamento page", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders all section card placeholders in order", () => {
+  it("renders the inputs panel (form + parcela desejada) and the results column in order", () => {
     renderPage();
     const sectionTitles = [
-      "Premissas gerais",
       "Financiamento",
       "Parcela mensal desejada",
-      "Aluguel vs. compra",
-      "Resumo dos resultados",
-      "Tabela de amortização",
       "Gráficos",
-      "Exportar",
+      "Tabela de amortização",
+      "Resumo dos resultados",
+      "Aluguel vs. compra",
     ];
     const rendered = screen
       .getAllByRole("heading", { level: 3 })
@@ -82,24 +80,31 @@ describe("Financiamento page", () => {
     expect(rendered).toEqual(sectionTitles);
   });
 
-  it("shows a pt-BR empty-state body in placeholder cards", () => {
+  it("renders the page-header export action with empty-state hint when no financing", () => {
+    renderPage();
+    expect(
+      screen.getByRole("button", { name: /exportar excel/i }),
+    ).toBeDisabled();
+    expect(screen.getByTestId("export-empty-state").textContent).toMatch(
+      /preencha os dados para habilitar a exportação/i,
+    );
+  });
+
+  it("shows pt-BR empty-state bodies in the results cards before any input", () => {
     renderPage();
     const emptyStates = screen.getAllByText(/preencha os dados para simular/i);
-    expect(emptyStates.length).toBeGreaterThanOrEqual(3);
+    expect(emptyStates.length).toBeGreaterThanOrEqual(2);
     expect(
       screen.getByText(
         /preencha os dados do financiamento para informar a parcela desejada/i,
       ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/preencha os dados para habilitar a exportação/i),
     ).toBeInTheDocument();
   });
 
   it("uses theme tokens (bg-card, border-border) on every card", () => {
     const { container } = renderPage();
     const cards = container.querySelectorAll("div.bg-card");
-    expect(cards.length).toBeGreaterThanOrEqual(8);
+    expect(cards.length).toBeGreaterThanOrEqual(6);
     cards.forEach((card) => {
       expect(card.className).toMatch(/bg-card/);
       expect(card.className).toMatch(/text-card-foreground/);
@@ -124,5 +129,15 @@ describe("Financiamento page", () => {
     expect(grid?.className).toMatch(/md:grid/);
     expect(grid?.className).toMatch(/md:grid-cols-12/);
     expect(grid?.className).toMatch(/flex-col/);
+  });
+
+  it("places the financing form inside an <aside> panel", () => {
+    const { container } = renderPage();
+    const aside = container.querySelector("aside");
+    expect(aside).not.toBeNull();
+    expect(aside?.getAttribute("aria-label")).toMatch(/painel de inputs/i);
+    expect(
+      aside?.querySelector("form[aria-label='Formulário de financiamento']"),
+    ).not.toBeNull();
   });
 });
