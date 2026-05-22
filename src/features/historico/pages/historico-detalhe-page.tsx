@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import {
+  ChartAreaInteractive,
+  type ChartView,
+} from "@/components/chart-area-interactive";
 import { SectionCards } from "@/components/section-cards";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,12 +19,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DeletePaymentDialog } from "@/features/historico/components/delete-payment-dialog";
 import { PaymentFormDialog } from "@/features/historico/components/payment-form-dialog";
 import { PaymentsTable } from "@/features/historico/components/payments-table";
+import { ScenarioSavingsCard } from "@/features/historico/components/scenario-savings-card";
 import {
   SimulateNextPaymentCard,
   type SimulateApplyValues,
 } from "@/features/historico/components/simulate-next-payment-card";
+import {
+  prepareScenarioBalanceData,
+  prepareScenarioInterestData,
+} from "@/features/historico/lib/build-detail-chart-data";
 import { buildScenarioDetailKpis } from "@/features/historico/lib/build-scenario-detail-kpis";
-import { computeScenarioState } from "@/features/historico/lib/scenario-state";
+import {
+  computeScenarioState,
+  rowToFinancingScenario,
+} from "@/features/historico/lib/scenario-state";
 import type { PaymentFormValues } from "@/features/historico/schemas/payment";
 import {
   ApiError,
@@ -85,6 +97,59 @@ export function HistoricoDetalhePage() {
     () => (state ? buildScenarioDetailKpis(state) : []),
     [state],
   );
+
+  const chartViews = useMemo<ChartView[]>(() => {
+    if (!scenario || !state) return [];
+    const inputs = rowToFinancingScenario(scenario);
+    const balanceData = prepareScenarioBalanceData(inputs.principal, state);
+    const interestData = prepareScenarioInterestData(state);
+    return [
+      {
+        id: "balance",
+        label: "Saldo devedor",
+        description:
+          "Saldo previsto sem pagamentos extras versus o saldo real com seus pagamentos.",
+        kind: "line",
+        data: balanceData,
+        series: [
+          {
+            key: "saldoPrevisto",
+            name: "Previsto sem extras",
+            color: "var(--chart-1)",
+          },
+          {
+            key: "saldoReal",
+            name: "Real com pagamentos",
+            color: "var(--chart-3)",
+          },
+        ],
+        emptyState:
+          "Registre pagamentos para comparar o saldo previsto com o real.",
+      },
+      {
+        id: "interest",
+        label: "Juros acumulados",
+        description:
+          "Juros acumulados no cronograma original versus os juros sob os pagamentos reais.",
+        kind: "line",
+        data: interestData,
+        series: [
+          {
+            key: "jurosPrevisto",
+            name: "Previsto sem extras",
+            color: "var(--chart-1)",
+          },
+          {
+            key: "jurosReal",
+            name: "Real com pagamentos",
+            color: "var(--chart-3)",
+          },
+        ],
+        emptyState:
+          "Registre pagamentos para visualizar o impacto nos juros acumulados.",
+      },
+    ];
+  }, [scenario, state]);
 
   const handlePaymentSaved = useCallback((saved: PaymentApi) => {
     setPayments((current) => {
@@ -200,6 +265,17 @@ export function HistoricoDetalhePage() {
       </div>
 
       <SectionCards items={kpis} />
+
+      {state ? <ScenarioSavingsCard state={state} /> : null}
+
+      {chartViews.length > 0 ? (
+        <ChartAreaInteractive
+          title="Previsto vs real"
+          description="Visualize o impacto dos pagamentos no saldo devedor e nos juros."
+          views={chartViews}
+          defaultView="balance"
+        />
+      ) : null}
 
       <SimulateNextPaymentCard
         scenario={scenario}

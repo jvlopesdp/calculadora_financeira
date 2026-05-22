@@ -36,6 +36,13 @@ export interface CurrentState {
   nextScheduledPayment: Decimal;
   remainingSchedule: PrepaymentScheduleRow[];
   baselineSchedule: ScheduleRow[];
+  /**
+   * Month-by-month rows from month 1 through the last paid month. Includes
+   * skipped months (no payment registered) so the timeline is continuous —
+   * those rows carry `installment = 0` and reflect the interest that accrued
+   * (when `accrueOnMissingMonths` is on).
+   */
+  historicalSchedule: PrepaymentScheduleRow[];
 }
 
 export interface ReplayOptions {
@@ -251,6 +258,8 @@ export function replayPayments(
     ? roundMoney(scenario.principal.div(termMonths))
     : ZERO;
 
+  const historicalSchedule: PrepaymentScheduleRow[] = [];
+
   for (let m = 1; m <= lastMonth && balance.greaterThan(ZERO); m++) {
     const interest = roundMoney(balance.times(monthlyRate));
     const baseInstallment = isSac
@@ -259,9 +268,19 @@ export function replayPayments(
 
     const payment = byMonth.get(m);
     if (!payment) {
+      const accruedInterest = accrueOnMissing ? interest : ZERO;
       if (accrueOnMissing) {
         balance = balance.plus(interest);
       }
+      historicalSchedule.push({
+        month: m,
+        installment: ZERO,
+        interest: accruedInterest,
+        amortization: ZERO,
+        balance,
+        baseInstallment,
+        extraPayment: ZERO,
+      });
       continue;
     }
 
@@ -269,22 +288,47 @@ export function replayPayments(
     const owed = balance.plus(interest);
 
     if (amount.greaterThanOrEqualTo(owed)) {
+      const settled = balance;
       paidInterest = paidInterest.plus(interest);
-      paidPrincipal = paidPrincipal.plus(balance);
+      paidPrincipal = paidPrincipal.plus(settled);
+      const extra = amount.minus(baseInstallment);
+      historicalSchedule.push({
+        month: m,
+        installment: owed,
+        interest,
+        amortization: settled,
+        balance: ZERO,
+        baseInstallment,
+        extraPayment: extra.greaterThan(ZERO) ? extra : ZERO,
+      });
       balance = ZERO;
       remainingTerm = 0;
       break;
     }
 
+    let amortization: Decimal;
     if (amount.greaterThanOrEqualTo(interest)) {
       const principalPaid = amount.minus(interest);
       paidInterest = paidInterest.plus(interest);
       paidPrincipal = paidPrincipal.plus(principalPaid);
       balance = balance.minus(principalPaid);
+      amortization = principalPaid;
     } else {
       paidInterest = paidInterest.plus(amount);
       balance = balance.plus(interest).minus(amount);
+      amortization = ZERO;
     }
+
+    const extra = amount.minus(baseInstallment);
+    historicalSchedule.push({
+      month: m,
+      installment: amount,
+      interest,
+      amortization,
+      balance,
+      baseInstallment,
+      extraPayment: extra.greaterThan(ZERO) ? extra : ZERO,
+    });
 
     if (amount.greaterThanOrEqualTo(baseInstallment)) {
       remainingTerm -= 1;
@@ -340,5 +384,6 @@ export function replayPayments(
       remainingSchedule.length > 0 ? remainingSchedule[0]!.installment : ZERO,
     remainingSchedule,
     baselineSchedule,
+    historicalSchedule,
   };
 }

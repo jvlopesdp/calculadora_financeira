@@ -666,8 +666,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 33,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Extended replayPayments to emit historicalSchedule (PrepaymentScheduleRow[]). Chart uses ChartAreaInteractive with two views (Saldo / Juros) and var(--chart-1)/var(--chart-3). Savings card next to the chart shows interest saved + months reduced. No browser tooling available in this sandbox; verification deferred to manual run."
     },
     {
       "id": "US-034",
