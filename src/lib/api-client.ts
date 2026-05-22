@@ -38,6 +38,27 @@ export interface CreateScenarioInput {
   startDate: string;
 }
 
+export type PaymentType = "parcela" | "amortizacao_extra" | "misto";
+export type AmortizationStrategy = "prazo" | "parcela";
+
+export interface CreatePaymentInput {
+  referenceMonth: string;
+  paymentDate: string;
+  amountPaid: number;
+  paymentType: PaymentType;
+  amortizationStrategy: AmortizationStrategy;
+  notes?: string;
+}
+
+export type UpdatePaymentInput = {
+  referenceMonth?: string;
+  paymentDate?: string;
+  amountPaid?: number;
+  paymentType?: PaymentType;
+  amortizationStrategy?: AmortizationStrategy;
+  notes?: string | null;
+};
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -93,9 +114,58 @@ export async function createScenario(
   return body.scenario;
 }
 
+export async function getScenario(id: string): Promise<ScenarioApi> {
+  const body = await jsonFetch<{ scenario: ScenarioApi }>(
+    `/api/scenarios/${encodeURIComponent(id)}`,
+  );
+  return body.scenario;
+}
+
 export async function listPayments(scenarioId: string): Promise<PaymentApi[]> {
   const body = await jsonFetch<{ payments: PaymentApi[] }>(
     `/api/scenarios/${encodeURIComponent(scenarioId)}/payments`,
   );
   return body.payments;
+}
+
+export async function createPayment(
+  scenarioId: string,
+  input: CreatePaymentInput,
+): Promise<PaymentApi> {
+  const body = await jsonFetch<{ payment: PaymentApi }>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/payments`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  return body.payment;
+}
+
+export async function updatePayment(
+  scenarioId: string,
+  paymentId: string,
+  input: UpdatePaymentInput,
+): Promise<PaymentApi> {
+  const body = await jsonFetch<{ payment: PaymentApi }>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/payments/${encodeURIComponent(paymentId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+  return body.payment;
+}
+
+export async function deletePayment(
+  scenarioId: string,
+  paymentId: string,
+): Promise<PaymentApi> {
+  const body = await jsonFetch<{ payment: PaymentApi }>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/payments/${encodeURIComponent(paymentId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+  return body.payment;
 }
