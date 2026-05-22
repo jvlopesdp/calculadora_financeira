@@ -23,4 +23,13 @@ The shell is only mounted under the `<AppShell>` layout route in `src/app/routes
 
 ## Block-content placeholders
 
-`section-cards.tsx`, `chart-area-interactive.tsx`, `data-table.tsx` are stubbed scaffolds — the upstream `dashboard-01` ships richer demos (TanStack Table + DnD-Kit + recharts). The real charts/tables for this app live under `src/features/simulator/components/*`. Future stories may swap the stubs in for KPI surfaces, but consumers should keep importing from `@/components/<name>` so the swap is local.
+`chart-area-interactive.tsx`, `data-table.tsx` are stubbed scaffolds — the upstream `dashboard-01` ships richer demos (TanStack Table + DnD-Kit + recharts). The real charts/tables for this app live under `src/features/simulator/components/*`. Future stories may swap the stubs in for KPI surfaces, but consumers should keep importing from `@/components/<name>` so the swap is local.
+
+## SectionCards (KPI grid)
+
+`section-cards.tsx` is the canonical KPI surface for shell pages — a responsive 1 / 2 / 4-column grid that consumes a `KpiCardData[]`. Each item has `title`, `value`, and optional `delta`, `trend` (`"up" | "down" | "neutral"`), `hint`, `icon` (Lucide). The trend controls the delta color (emerald / destructive / muted). The component renders nothing when `items` is empty.
+
+- **No heading semantics inside cards.** Label is a `<p>`, value is a `<div>`. This is intentional: it keeps each page's section-titles (h3 on Card primitives) as the only level-3 headings, so route-level tests can keep asserting against `getAllByRole("heading", { level: 3 })`. If you ever change this, expect to update `financiamento-page.test.tsx` and similar.
+- **Don't compute KPIs in the page component.** Build them in `src/features/<area>/lib/build-<area>-kpis.ts` (pure function over simulation state → `KpiCardData[]`). Pages call it inside a `useMemo` and pass the result to `<SectionCards items={…}/>`. This keeps financial logic out of the React component per the project's `core/finance` rule and makes the KPI shape unit-testable in isolation.
+- **Empty-state behavior**: every KPI builder returns four items with `value: "—"` when state is missing, so the grid always renders four placeholders rather than disappearing. Use `hint` to explain why a slot is empty ("Disponível em breve", "Sem pagamento extra", etc.).
+- **Test-ids are derived from titles** via a NFD-strip-diacritics + slugify pass: `kpi-card-<slug>` and `kpi-card-<slug>-value`. Stable for assertions like `getByTestId("kpi-card-parcela-base-value")`.
