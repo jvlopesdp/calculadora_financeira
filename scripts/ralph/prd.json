@@ -566,8 +566,8 @@
         "Tests pass"
       ],
       "priority": 28,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Mounted via app.route(\"/api/scenarios/:scenarioId/payments\", paymentsRouter) in src/server/index.ts BEFORE the scenarios router so the more-specific prefix matches first. Ownership of the parent scenario is enforced by a single `select \"id\" from \"financing_scenarios\" where \"id\" = ? and \"user_id\" = ?` lookup at the top of each handler — returns 404 if scenario does not exist OR belongs to another user (consistent with PRD wording). PATCH applies one field at a time via static parameterised SQL (same pattern as scenarios PATCH) so the FakeD1 stub can recognise each statement. Zod messages in pt-BR; the `at_least_one_field_required` refine uses `Informe ao menos um campo para atualizar.`. Money round-trips through Math.round(brl * 100) for cents. Notes is nullable in PATCH (z.string().nullable().optional()) so callers can clear it."
     },
     {
       "id": "US-029",
