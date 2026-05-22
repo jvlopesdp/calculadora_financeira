@@ -24,10 +24,16 @@ const defaultFinancing: FinancingFormValues = {
 };
 
 const defaultRentVsBuy: RentVsBuyFormValues = {
+  propertyValue: 500_000,
+  downPayment: 100_000,
+  termMonths: 360,
+  annualRate: 10,
   monthlyRent: 2_500,
   annualRentAdjustment: 5,
   annualInvestmentReturn: 8,
   annualAppreciation: 5,
+  purchaseCostPct: 3,
+  saleCostPct: 6,
   monthlyOwnershipCosts: 250,
   horizonMonths: 120,
 };

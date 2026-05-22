@@ -29,10 +29,16 @@ const baseFinancing: ExportPayload["financing"] = {
 };
 
 const baseRentVsBuy: ExportPayload["rentVsBuy"] = {
+  propertyValue: 500_000,
+  downPayment: 100_000,
+  termMonths: 360,
+  annualRate: 12,
   monthlyRent: 2500,
   annualRentAdjustment: 5,
   annualInvestmentReturn: 10,
   annualAppreciation: 6,
+  purchaseCostPct: 3,
+  saleCostPct: 6,
   monthlyOwnershipCosts: 500,
   horizonMonths: 120,
 };
