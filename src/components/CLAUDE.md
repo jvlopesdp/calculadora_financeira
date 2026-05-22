@@ -21,9 +21,17 @@ Top-level components. Conventions for the dashboard-01 shell live here.
 
 The shell is only mounted under the `<AppShell>` layout route in `src/app/routes.tsx`. Auth pages render under `<AuthLayout>` and never see `SidebarProvider`, so they don't need to mock it in tests.
 
-## Block-content placeholders
+## DataTable
 
-`data-table.tsx` is a stubbed scaffold — the upstream `dashboard-01` ships a richer TanStack Table + DnD-Kit demo. The real domain table for this app lives at `src/features/simulator/components/amortization-table.tsx`. Future stories may swap the stub in, but consumers should keep importing from `@/components/data-table` so the swap is local.
+`data-table.tsx` is the canonical generic table surface for the app. Typed `DataTable<TRow>` with `columns: DataTableColumn<TRow>[]`, `data: TRow[]`, `pageSize?: 12 | 24`. No drag-and-drop, no external table library — the upstream `dashboard-01` TanStack/DnD demo was deliberately replaced (US-024).
+
+- Each column declares `id`, `header`, optional `numeric`, optional `sortable` + `sortValue: (row) => number`, and a required `cell: (row) => ReactNode`. Sortable columns must also provide `sortValue` — otherwise the sort button no-ops.
+- Numeric columns are right-aligned and rendered with the `font-tabular` utility (`src/index.css`). Use them for any monetary or count column for legibility.
+- Sort cycle on a sortable header: `none → asc → desc → none`. `aria-sort` is set per state so accessibility-tree tests can assert direction.
+- Pagination is client-side. Internal state is `useState(0)`; the table self-clamps if the current page exceeds the new last page after `data` shrinks. Prev/Next buttons disable at the boundaries.
+- The empty state is a single `<p data-testid="data-table-empty-state">` — callers should NOT pre-check `data.length === 0` and render their own placeholder, just let DataTable handle it (or wrap with their own empty state above when the dataset semantics need explanation).
+- `ariaLabel` / `ariaLabelledBy` are passed through to the `<table>` element. Prefer `ariaLabelledBy` pointing at the surrounding CardTitle's `id`.
+- Domain tables (e.g. `features/simulator/components/amortization-table.tsx`) wrap `DataTable` in a Card and own scenario/filter chrome above the table. Keep financial logic out of `DataTable` — it's pure presentation over a `TRow[]`.
 
 ## ChartAreaInteractive
 
