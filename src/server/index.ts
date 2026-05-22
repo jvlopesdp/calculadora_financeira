@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { createAuth } from "./auth";
 import type { Env } from "./env";
 import { requireUser, type AuthVariables } from "./middleware/require-user";
+import paymentsRouter from "./routes/payments";
 import scenariosRouter from "./routes/scenarios";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -21,6 +22,7 @@ app.on(["POST", "GET"], "/api/auth/*", (c) =>
 // Sub-apps that bring their own `requireUser` middleware are mounted here.
 // They must register BEFORE the generic `app.use("/api/*", requireUser)` below
 // so the parent middleware does not double-run on every request.
+app.route("/api/scenarios/:scenarioId/payments", paymentsRouter);
 app.route("/api/scenarios", scenariosRouter);
 
 // Every /api/* route registered below this line requires a valid session.
