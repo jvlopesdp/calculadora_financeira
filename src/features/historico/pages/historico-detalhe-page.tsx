@@ -15,8 +15,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DeletePaymentDialog } from "@/features/historico/components/delete-payment-dialog";
 import { PaymentFormDialog } from "@/features/historico/components/payment-form-dialog";
 import { PaymentsTable } from "@/features/historico/components/payments-table";
+import {
+  SimulateNextPaymentCard,
+  type SimulateApplyValues,
+} from "@/features/historico/components/simulate-next-payment-card";
 import { buildScenarioDetailKpis } from "@/features/historico/lib/build-scenario-detail-kpis";
 import { computeScenarioState } from "@/features/historico/lib/scenario-state";
+import type { PaymentFormValues } from "@/features/historico/schemas/payment";
 import {
   ApiError,
   getScenario,
@@ -35,6 +40,8 @@ export function HistoricoDetalhePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [createDraft, setCreateDraft] =
+    useState<Partial<PaymentFormValues> | null>(null);
   const [editing, setEditing] = useState<PaymentApi | null>(null);
   const [deleting, setDeleting] = useState<PaymentApi | null>(null);
 
@@ -95,6 +102,16 @@ export function HistoricoDetalhePage() {
 
   const handlePaymentDeleted = useCallback((deleted: PaymentApi) => {
     setPayments((current) => current.filter((p) => p.id !== deleted.id));
+  }, []);
+
+  const handleSimulateApply = useCallback((values: SimulateApplyValues) => {
+    setCreateDraft({
+      amountPaid: values.amountPaid,
+      amortizationStrategy: values.amortizationStrategy,
+      referenceMonth: values.referenceMonth,
+      paymentType: "amortizacao_extra",
+    });
+    setCreateOpen(true);
   }, []);
 
   if (status === "loading") {
@@ -171,12 +188,24 @@ export function HistoricoDetalhePage() {
           </Link>
           <h2 className="text-xl font-semibold tracking-tight">{displayName}</h2>
         </div>
-        <Button type="button" onClick={() => setCreateOpen(true)}>
+        <Button
+          type="button"
+          onClick={() => {
+            setCreateDraft(null);
+            setCreateOpen(true);
+          }}
+        >
           Registrar pagamento
         </Button>
       </div>
 
       <SectionCards items={kpis} />
+
+      <SimulateNextPaymentCard
+        scenario={scenario}
+        payments={payments}
+        onApply={handleSimulateApply}
+      />
 
       <Card>
         <CardHeader>
@@ -199,8 +228,12 @@ export function HistoricoDetalhePage() {
 
       <PaymentFormDialog
         open={createOpen}
-        onOpenChange={setCreateOpen}
+        onOpenChange={(next) => {
+          setCreateOpen(next);
+          if (!next) setCreateDraft(null);
+        }}
         scenarioId={scenario.id}
+        initialDraft={createDraft}
         onSaved={handlePaymentSaved}
       />
 

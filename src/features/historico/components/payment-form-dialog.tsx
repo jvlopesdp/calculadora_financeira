@@ -44,6 +44,8 @@ export interface PaymentFormDialogProps {
   scenarioId: string;
   /** When provided the dialog edits this payment; otherwise creates a new one. */
   payment?: PaymentApi | null;
+  /** Optional create-mode prefills (ignored when `payment` is provided). */
+  initialDraft?: Partial<PaymentFormValues> | null;
   onSaved: (payment: PaymentApi) => void;
 }
 
@@ -59,7 +61,10 @@ const STRATEGY_LABELS: Record<(typeof AMORTIZATION_STRATEGIES)[number], string> 
     parcela: "Reduzir parcela",
   };
 
-function defaultValues(payment: PaymentApi | null | undefined): PaymentFormValues {
+function defaultValues(
+  payment: PaymentApi | null | undefined,
+  draft?: Partial<PaymentFormValues> | null,
+): PaymentFormValues {
   if (payment) {
     return {
       referenceMonth: payment.reference_month,
@@ -78,7 +83,7 @@ function defaultValues(payment: PaymentApi | null | undefined): PaymentFormValue
     };
   }
   const today = new Date().toISOString().slice(0, 10);
-  return {
+  const base: PaymentFormValues = {
     referenceMonth: today.slice(0, 7),
     paymentDate: today,
     amountPaid: 0,
@@ -86,6 +91,7 @@ function defaultValues(payment: PaymentApi | null | undefined): PaymentFormValue
     amortizationStrategy: "prazo",
     notes: "",
   };
+  return draft ? { ...base, ...draft } : base;
 }
 
 export function PaymentFormDialog({
@@ -93,6 +99,7 @@ export function PaymentFormDialog({
   onOpenChange,
   scenarioId,
   payment,
+  initialDraft,
   onSaved,
 }: PaymentFormDialogProps) {
   const mode: Mode = payment ? "edit" : "create";
@@ -102,15 +109,15 @@ export function PaymentFormDialog({
   const form = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
     mode: "onBlur",
-    defaultValues: defaultValues(payment),
+    defaultValues: defaultValues(payment, initialDraft),
   });
 
   useEffect(() => {
     if (open) {
-      form.reset(defaultValues(payment));
+      form.reset(defaultValues(payment, initialDraft));
       setFormError(null);
     }
-  }, [open, payment, form]);
+  }, [open, payment, initialDraft, form]);
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
