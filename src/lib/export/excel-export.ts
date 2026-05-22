@@ -15,9 +15,9 @@ import type { PrepaymentResult } from "@/core/finance/prepayment";
 import { calculatePriceInstallment } from "@/core/finance/price-calculator";
 import {
   compareRentVsBuy,
-  type RentVsBuyInputs,
   type RentVsBuyResult,
 } from "@/core/finance/rent-vs-buy";
+import { buildRentVsBuyEngineInputs } from "@/features/simulator/lib/rent-vs-buy-engine";
 import type { ExtraPaymentStrategy } from "@/features/simulator/hooks/simulation-context";
 import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
 import type { RentVsBuyFormValues } from "@/features/simulator/schemas/rent-vs-buy";
@@ -82,25 +82,6 @@ function buildFinancingInputs(values: FinancingFormValues): FinancingInputs {
   };
 }
 
-function buildRentVsBuyInputs(
-  financing: FinancingFormValues,
-  values: RentVsBuyFormValues,
-): RentVsBuyInputs {
-  return {
-    propertyValue: new Decimal(financing.propertyValue),
-    downPayment: new Decimal(financing.downPayment),
-    monthlyRate: new Decimal(financing.monthlyRate).div(100),
-    termMonths: financing.termMonths,
-    system: financing.system,
-    monthlyRent: new Decimal(values.monthlyRent),
-    annualRentAdjustment: new Decimal(values.annualRentAdjustment).div(100),
-    annualInvestmentReturn: new Decimal(values.annualInvestmentReturn).div(100),
-    annualAppreciation: new Decimal(values.annualAppreciation).div(100),
-    monthlyOwnershipCosts: new Decimal(values.monthlyOwnershipCosts),
-    horizonMonths: values.horizonMonths,
-  };
-}
-
 function baseScheduleOf(inputs: FinancingInputs): ScheduleRow[] {
   return inputs.system === "SAC"
     ? generateSacSchedule(inputs)
@@ -138,12 +119,11 @@ function derivedTargetMonthlyPayment(
 }
 
 function tryRentVsBuy(
-  financing: FinancingFormValues,
   rentVsBuy: RentVsBuyFormValues | null,
 ): RentVsBuyResult | null {
   if (!rentVsBuy) return null;
   try {
-    return compareRentVsBuy(buildRentVsBuyInputs(financing, rentVsBuy));
+    return compareRentVsBuy(buildRentVsBuyEngineInputs(rentVsBuy));
   } catch {
     return null;
   }
@@ -201,7 +181,7 @@ export function buildResumoSheet(payload: ExportPayload): ExportCell[][] {
     );
   }
 
-  const rvb = tryRentVsBuy(financing, rentVsBuy);
+  const rvb = tryRentVsBuy(rentVsBuy);
   if (rvb && rentVsBuy) {
     const finalBuy = rvb.buyTimeline[rvb.buyTimeline.length - 1];
     const finalRent = rvb.rentTimeline[rvb.rentTimeline.length - 1];
@@ -350,7 +330,7 @@ export function buildExtraInstallmentSheet(payload: ExportPayload): ExportCell[]
 }
 
 export function buildRentVsBuySheet(payload: ExportPayload): ExportCell[][] {
-  const rvb = tryRentVsBuy(payload.financing, payload.rentVsBuy);
+  const rvb = tryRentVsBuy(payload.rentVsBuy);
   if (!rvb) {
     return [
       [

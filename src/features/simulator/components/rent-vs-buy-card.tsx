@@ -25,7 +25,6 @@ import { PercentageInput } from "@/components/finance/percentage-input";
 import { cn } from "@/lib/utils";
 import { formatBRL } from "@/lib/formatters/currency";
 import { formatPercentage } from "@/lib/formatters/percentage";
-import { formatMonths } from "@/lib/formatters/number";
 import {
   RENT_VS_BUY_DEFAULTS,
   rentVsBuySchema,
@@ -35,10 +34,10 @@ import { useSimulation } from "@/features/simulator/hooks/simulation-context";
 import {
   annualToMonthlyRate,
   compareRentVsBuy,
-  type RentVsBuyInputs,
   type RentVsBuyResult,
 } from "@/core/finance/rent-vs-buy";
-import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
+import { buildRentVsBuyEngineInputs } from "@/features/simulator/lib/rent-vs-buy-engine";
+import { formatMonths } from "@/lib/formatters/number";
 
 type HorizonUnit = "months" | "years";
 
@@ -60,25 +59,6 @@ const FORM_DEFAULTS = {
   monthlyOwnershipCosts: RENT_VS_BUY_DEFAULTS.monthlyOwnershipCosts,
   horizonMonths: RENT_VS_BUY_DEFAULTS.horizonMonths,
 } satisfies Partial<RentVsBuyFormValues>;
-
-function buildEngineInputs(
-  financing: FinancingFormValues,
-  values: RentVsBuyFormValues,
-): RentVsBuyInputs {
-  return {
-    propertyValue: new Decimal(financing.propertyValue),
-    downPayment: new Decimal(financing.downPayment),
-    monthlyRate: new Decimal(financing.monthlyRate).div(100),
-    termMonths: financing.termMonths,
-    system: financing.system,
-    monthlyRent: new Decimal(values.monthlyRent),
-    annualRentAdjustment: new Decimal(values.annualRentAdjustment).div(100),
-    annualInvestmentReturn: new Decimal(values.annualInvestmentReturn).div(100),
-    annualAppreciation: new Decimal(values.annualAppreciation).div(100),
-    monthlyOwnershipCosts: new Decimal(values.monthlyOwnershipCosts),
-    horizonMonths: values.horizonMonths,
-  };
-}
 
 interface MetricProps {
   label: string;
@@ -167,11 +147,9 @@ function FieldLabel({ htmlFor, children, tooltip }: FieldLabelProps) {
 }
 
 const EMPTY_STATE = "Preencha os dados para comparar aluguel e compra";
-const FINANCING_MISSING_STATE =
-  "Preencha os dados do financiamento para comparar com aluguel";
 
 export function RentVsBuyCard() {
-  const { financing, setRentVsBuy } = useSimulation();
+  const { setRentVsBuy } = useSimulation();
   const [horizonUnit, setHorizonUnit] = useState<HorizonUnit>("months");
 
   const {
@@ -283,8 +261,8 @@ export function RentVsBuyCard() {
     setRentVsBuy,
   ]);
 
-  const result = useMemo(() => {
-    if (!financing || !isValid) return null;
+  const result = useMemo<RentVsBuyResult | null>(() => {
+    if (!isValid) return null;
     const values: RentVsBuyFormValues = {
       propertyValue: watched.propertyValue ?? RENT_VS_BUY_DEFAULTS.propertyValue,
       downPayment: watched.downPayment ?? RENT_VS_BUY_DEFAULTS.downPayment,
@@ -308,12 +286,11 @@ export function RentVsBuyCard() {
         watched.horizonMonths ?? RENT_VS_BUY_DEFAULTS.horizonMonths,
     };
     try {
-      return compareRentVsBuy(buildEngineInputs(financing, values));
+      return compareRentVsBuy(buildRentVsBuyEngineInputs(values));
     } catch {
       return null;
     }
   }, [
-    financing,
     isValid,
     watched.propertyValue,
     watched.downPayment,
@@ -329,11 +306,7 @@ export function RentVsBuyCard() {
     watched.horizonMonths,
   ]);
 
-  const emptyMessage = !isValid
-    ? EMPTY_STATE
-    : !financing
-      ? FINANCING_MISSING_STATE
-      : EMPTY_STATE;
+  const emptyMessage = EMPTY_STATE;
 
   const finalBuyNetWorth = result
     ? result.buyTimeline[result.buyTimeline.length - 1].netWorth
@@ -351,27 +324,6 @@ export function RentVsBuyCard() {
       .times(100);
     return formatPercentage(pct, 2);
   }, [finalBuyNetWorth, finalRentNetWorth]);
-
-  const annualRows = useMemo(() => {
-    if (!result) return [];
-    const horizon = result.buyTimeline.length - 1;
-    const monthsList: number[] = [];
-    for (let m = 12; m <= horizon; m += 12) monthsList.push(m);
-    if (monthsList.length === 0 || monthsList[monthsList.length - 1] !== horizon) {
-      monthsList.push(horizon);
-    }
-    return monthsList.map((m) => {
-      const buy = result.buyTimeline[m].netWorth;
-      const rent = result.rentTimeline[m].netWorth;
-      return {
-        month: m,
-        year: Math.ceil(m / 12),
-        comprar: buy,
-        alugar: rent,
-        diferenca: buy.minus(rent),
-      };
-    });
-  }, [result]);
 
   return (
     <Card className="md:col-span-12">
@@ -872,7 +824,6 @@ export function RentVsBuyCard() {
         </TooltipProvider>
 
         {result &&
-        financing &&
         finalBuyNetWorth !== null &&
         finalRentNetWorth !== null ? (
           <div className="mt-6 flex flex-col gap-6">
@@ -911,65 +862,6 @@ export function RentVsBuyCard() {
                 />
               </dl>
             </div>
-            {annualRows.length > 0 ? (
-              <div
-                data-testid="rent-vs-buy-annual-table"
-                className="flex flex-col gap-2"
-              >
-                <h4 className="text-sm font-semibold">Resumo anual</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[480px] border-collapse text-sm">
-                    <thead>
-                      <tr className="border-border text-muted-foreground border-b text-left text-xs uppercase">
-                        <th className="py-2 pr-3 font-medium">Ano</th>
-                        <th className="py-2 pr-3 text-right font-medium">
-                          Patrimônio (comprar)
-                        </th>
-                        <th className="py-2 pr-3 text-right font-medium">
-                          Patrimônio (alugar)
-                        </th>
-                        <th className="py-2 pr-3 text-right font-medium">
-                          Diferença
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {annualRows.map((row) => (
-                        <tr
-                          key={row.month}
-                          className="border-border/60 border-b last:border-b-0"
-                        >
-                          <td className="font-tabular py-2 pr-3">
-                            <span className="font-medium">Ano {row.year}</span>
-                            <span className="text-muted-foreground ml-2 text-xs">
-                              {formatMonths(row.month)}
-                            </span>
-                          </td>
-                          <td className="font-tabular py-2 pr-3 text-right">
-                            {formatBRL(row.comprar)}
-                          </td>
-                          <td className="font-tabular py-2 pr-3 text-right">
-                            {formatBRL(row.alugar)}
-                          </td>
-                          <td
-                            className={cn(
-                              "font-tabular py-2 pr-3 text-right",
-                              row.diferenca.greaterThan(0)
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : row.diferenca.lessThan(0)
-                                  ? "text-sky-600 dark:text-sky-400"
-                                  : "",
-                            )}
-                          >
-                            {formatBRL(row.diferenca)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
           </div>
         ) : (
           <p

@@ -18,7 +18,6 @@ import { prepareInterestSavingsData } from "@/features/simulator/components/char
 import { prepareOutstandingBalanceData } from "@/features/simulator/components/charts/outstanding-balance-chart-data";
 import { ExportButton } from "@/features/simulator/components/export-button";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
-import { RentVsBuyCard } from "@/features/simulator/components/rent-vs-buy-card";
 import { ResultsSummaryCard } from "@/features/simulator/components/results-summary-card";
 import { TargetPaymentCard } from "@/features/simulator/components/target-payment-card";
 import { useSimulation } from "@/features/simulator/hooks/simulation-context";
@@ -152,8 +151,6 @@ export function FinanciamentoPage() {
           <AmortizationTable />
 
           <ResultsSummaryCard />
-
-          <RentVsBuyCard />
         </div>
       </div>
     </>

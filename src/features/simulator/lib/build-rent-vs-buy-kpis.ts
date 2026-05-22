@@ -7,42 +7,18 @@ import {
 } from "lucide-react";
 
 import type { KpiCardData } from "@/components/section-cards";
-import {
-  compareRentVsBuy,
-  type RentVsBuyInputs,
-} from "@/core/finance/rent-vs-buy";
-import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
+import { compareRentVsBuy } from "@/core/finance/rent-vs-buy";
 import type { RentVsBuyFormValues } from "@/features/simulator/schemas/rent-vs-buy";
+import { buildRentVsBuyEngineInputs } from "@/features/simulator/lib/rent-vs-buy-engine";
 import { formatBRL } from "@/lib/formatters/currency";
 
 const EMPTY_VALUE = "—";
 
-function buildEngineInputs(
-  financing: FinancingFormValues,
-  values: RentVsBuyFormValues,
-): RentVsBuyInputs {
-  return {
-    propertyValue: new Decimal(financing.propertyValue),
-    downPayment: new Decimal(financing.downPayment),
-    monthlyRate: new Decimal(financing.monthlyRate).div(100),
-    termMonths: financing.termMonths,
-    system: financing.system,
-    monthlyRent: new Decimal(values.monthlyRent),
-    annualRentAdjustment: new Decimal(values.annualRentAdjustment).div(100),
-    annualInvestmentReturn: new Decimal(values.annualInvestmentReturn).div(100),
-    annualAppreciation: new Decimal(values.annualAppreciation).div(100),
-    monthlyOwnershipCosts: new Decimal(values.monthlyOwnershipCosts),
-    horizonMonths: values.horizonMonths,
-  };
-}
-
 export interface RentVsBuyKpiInput {
-  financing: FinancingFormValues | null;
   rentVsBuy: RentVsBuyFormValues | null;
 }
 
 export function buildRentVsBuyKpis({
-  financing,
   rentVsBuy,
 }: RentVsBuyKpiInput): KpiCardData[] {
   const empty: KpiCardData[] = [
@@ -68,10 +44,10 @@ export function buildRentVsBuyKpis({
     },
   ];
 
-  if (!financing || !rentVsBuy) return empty;
+  if (!rentVsBuy) return empty;
 
   try {
-    const result = compareRentVsBuy(buildEngineInputs(financing, rentVsBuy));
+    const result = compareRentVsBuy(buildRentVsBuyEngineInputs(rentVsBuy));
     const finalBuy =
       result.buyTimeline[result.buyTimeline.length - 1]?.netWorth ??
       new Decimal(0);

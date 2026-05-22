@@ -72,7 +72,6 @@ describe("Financiamento page", () => {
       "Gráficos",
       "Tabela de amortização",
       "Resumo dos resultados",
-      "Aluguel vs. compra",
     ];
     const rendered = screen
       .getAllByRole("heading", { level: 3 })

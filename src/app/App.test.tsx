@@ -105,7 +105,10 @@ describe("AppRoutes", () => {
   it("renders /alugar-x-financiar under the app shell without requiring auth", () => {
     renderAt("/alugar-x-financiar");
     expect(
-      screen.getByRole("heading", { level: 3, name: /alugar x financiar/i }),
+      screen.getByRole("heading", { level: 3, name: /aluguel vs\. compra/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 3, name: /^resumo anual$/i }),
     ).toBeInTheDocument();
   });
 

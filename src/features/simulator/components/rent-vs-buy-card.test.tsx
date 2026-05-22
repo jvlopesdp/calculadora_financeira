@@ -149,30 +149,14 @@ describe("RentVsBuyCard", () => {
     expect(screen.getByText(/mês de break-even/i)).toBeInTheDocument();
   });
 
-  it("renders an annual summary table with one row per year", async () => {
-    renderCard({ financing: defaultFinancing });
-    await fillAllValid();
-    const table = await screen.findByTestId("rent-vs-buy-annual-table");
-    expect(table).toBeInTheDocument();
-    // Horizon = 360 months → 30 yearly rows (m=12, 24, ..., 360).
-    const rows = table.querySelectorAll("tbody tr");
-    expect(rows.length).toBe(30);
-    expect(rows[0].textContent).toMatch(/ano 1/i);
-    expect(rows[29].textContent).toMatch(/ano 30/i);
-    // Header labels exist
-    expect(table.textContent).toMatch(/patrimônio \(comprar\)/i);
-    expect(table.textContent).toMatch(/patrimônio \(alugar\)/i);
-  });
-
-  it("falls back to empty-state message when financing is missing", async () => {
+  it("computes the results independently of the financing context state", async () => {
     renderCard({ financing: null });
     await fillAllValid();
     await waitFor(() => {
       expect(screen.getByTestId("rent-vs-buy-state").textContent).toBe("set");
     });
-    expect(
-      screen.getByTestId("rent-vs-buy-empty-state").textContent,
-    ).toMatch(/preencha os dados/i);
+    const badge = await screen.findByTestId("best-scenario-badge");
+    expect(badge).toBeInTheDocument();
   });
 
   it("recomputes the results when an input changes", async () => {
