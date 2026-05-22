@@ -342,6 +342,37 @@ export function RentVsBuyCard() {
     ? result.rentTimeline[result.rentTimeline.length - 1].netWorth
     : null;
 
+  const diferencaPctLabel = useMemo(() => {
+    if (!finalBuyNetWorth || !finalRentNetWorth) return null;
+    if (finalRentNetWorth.isZero()) return null;
+    const pct = finalBuyNetWorth
+      .minus(finalRentNetWorth)
+      .div(finalRentNetWorth.abs())
+      .times(100);
+    return formatPercentage(pct, 2);
+  }, [finalBuyNetWorth, finalRentNetWorth]);
+
+  const annualRows = useMemo(() => {
+    if (!result) return [];
+    const horizon = result.buyTimeline.length - 1;
+    const monthsList: number[] = [];
+    for (let m = 12; m <= horizon; m += 12) monthsList.push(m);
+    if (monthsList.length === 0 || monthsList[monthsList.length - 1] !== horizon) {
+      monthsList.push(horizon);
+    }
+    return monthsList.map((m) => {
+      const buy = result.buyTimeline[m].netWorth;
+      const rent = result.rentTimeline[m].netWorth;
+      return {
+        month: m,
+        year: Math.ceil(m / 12),
+        comprar: buy,
+        alugar: rent,
+        diferenca: buy.minus(rent),
+      };
+    });
+  }, [result]);
+
   return (
     <Card className="md:col-span-12">
       <CardHeader className="flex flex-row items-start justify-between gap-4">
@@ -844,35 +875,101 @@ export function RentVsBuyCard() {
         financing &&
         finalBuyNetWorth !== null &&
         finalRentNetWorth !== null ? (
-          <div className="mt-6 flex flex-col gap-4">
-            <div className="flex items-center gap-3">
-              <span className="text-muted-foreground text-sm">
-                Melhor cenário:
-              </span>
-              <ScenarioBadge scenario={result.summary.bestScenario} />
+          <div className="mt-6 flex flex-col gap-6">
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-muted-foreground text-sm">Vencedor:</span>
+                <ScenarioBadge scenario={result.summary.bestScenario} />
+              </div>
+              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <Metric
+                  label="Patrimônio final (comprar)"
+                  value={formatBRL(finalBuyNetWorth)}
+                />
+                <Metric
+                  label="Patrimônio final (alugar + investir)"
+                  value={formatBRL(finalRentNetWorth)}
+                />
+                <Metric
+                  label="Diferença (R$)"
+                  value={formatBRL(result.summary.netWorthDifferenceFinal)}
+                />
+                <Metric
+                  label="Diferença (%)"
+                  value={diferencaPctLabel ?? "—"}
+                />
+                <Metric
+                  label="Mês de break-even"
+                  value={
+                    result.summary.breakEvenMonth === null
+                      ? "Não atinge"
+                      : `Mês ${result.summary.breakEvenMonth} · ${formatMonths(
+                          result.summary.breakEvenMonth,
+                        )}`
+                  }
+                  className="sm:col-span-2 lg:col-span-1"
+                />
+              </dl>
             </div>
-            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Metric
-                label="Patrimônio final (comprar)"
-                value={formatBRL(finalBuyNetWorth)}
-              />
-              <Metric
-                label="Patrimônio final (alugar)"
-                value={formatBRL(finalRentNetWorth)}
-              />
-              <Metric
-                label="Diferença"
-                value={formatBRL(result.summary.netWorthDifferenceFinal)}
-              />
-              <Metric
-                label="Ponto de equilíbrio"
-                value={
-                  result.summary.breakEvenMonth === null
-                    ? "Não atinge ponto de equilíbrio"
-                    : formatMonths(result.summary.breakEvenMonth)
-                }
-              />
-            </dl>
+            {annualRows.length > 0 ? (
+              <div
+                data-testid="rent-vs-buy-annual-table"
+                className="flex flex-col gap-2"
+              >
+                <h4 className="text-sm font-semibold">Resumo anual</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[480px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-border text-muted-foreground border-b text-left text-xs uppercase">
+                        <th className="py-2 pr-3 font-medium">Ano</th>
+                        <th className="py-2 pr-3 text-right font-medium">
+                          Patrimônio (comprar)
+                        </th>
+                        <th className="py-2 pr-3 text-right font-medium">
+                          Patrimônio (alugar)
+                        </th>
+                        <th className="py-2 pr-3 text-right font-medium">
+                          Diferença
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {annualRows.map((row) => (
+                        <tr
+                          key={row.month}
+                          className="border-border/60 border-b last:border-b-0"
+                        >
+                          <td className="font-tabular py-2 pr-3">
+                            <span className="font-medium">Ano {row.year}</span>
+                            <span className="text-muted-foreground ml-2 text-xs">
+                              {formatMonths(row.month)}
+                            </span>
+                          </td>
+                          <td className="font-tabular py-2 pr-3 text-right">
+                            {formatBRL(row.comprar)}
+                          </td>
+                          <td className="font-tabular py-2 pr-3 text-right">
+                            {formatBRL(row.alugar)}
+                          </td>
+                          <td
+                            className={cn(
+                              "font-tabular py-2 pr-3 text-right",
+                              row.diferenca.greaterThan(0)
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : row.diferenca.lessThan(0)
+                                  ? "text-sky-600 dark:text-sky-400"
+                                  : "",
+                            )}
+                          >
+                            {formatBRL(row.diferenca)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : (
           <p

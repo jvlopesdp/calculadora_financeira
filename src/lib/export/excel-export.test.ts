@@ -294,11 +294,50 @@ describe("buildRentVsBuySheet", () => {
     );
   });
 
-  it("emits horizon+1 rows when rentVsBuy is configured", () => {
+  it("emits a summary block, an annual block and the monthly detail when rentVsBuy is configured", () => {
     const rows = buildRentVsBuySheet(payload({ rentVsBuy: baseRentVsBuy }));
-    // 1 header + (horizonMonths + 1) data rows (timeline includes m=0)
-    expect(rows.length).toBe(1 + baseRentVsBuy.horizonMonths + 1);
-    expect(isStringCell(rows[0][0]) && rows[0][0].v).toBe("Mês");
+    expect(isStringCell(rows[0][0]) && rows[0][0].v).toBe(
+      "Resumo aluguel vs. compra",
+    );
+    const labels = firstColumn(rows);
+    expect(labels).toContain("Vencedor");
+    expect(labels).toContain("Patrimônio final (comprar)");
+    expect(labels).toContain("Patrimônio final (alugar + investir)");
+    expect(labels).toContain("Diferença (R$)");
+    expect(labels).toContain("Diferença (%)");
+    expect(labels).toContain("Mês de break-even");
+    expect(labels).toContain("Resumo anual");
+    expect(labels).toContain("Detalhamento mensal");
+
+    // Annual block has one row per completed year of the horizon (120 → 10).
+    const annualHeaderIdx = rows.findIndex(
+      (r) => isStringCell(r[0]) && r[0].v === "Ano",
+    );
+    expect(annualHeaderIdx).toBeGreaterThan(0);
+    // First annual data row should be year 1 / month 12.
+    const firstAnnual = rows[annualHeaderIdx + 1];
+    expect(isNumberCell(firstAnnual[0]) && firstAnnual[0].v).toBe(1);
+    expect(isNumberCell(firstAnnual[1]) && firstAnnual[1].v).toBe(12);
+
+    // Diferença (%) cell uses the percent format (or a dash if rent is zero).
+    const diffPctRow = rows.find(
+      (r) => isStringCell(r[0]) && r[0].v === "Diferença (%)",
+    );
+    expect(diffPctRow).toBeDefined();
+    const diffPctCell = diffPctRow![1];
+    if (isNumberCell(diffPctCell)) {
+      expect(diffPctCell.z).toBe(PERCENT_FORMAT);
+    } else {
+      expect(isStringCell(diffPctCell) && diffPctCell.v).toBe("—");
+    }
+
+    // Monthly detail still emits the per-month rows after its header.
+    const monthlyHeaderIdx = rows.findIndex(
+      (r) => isStringCell(r[0]) && r[0].v === "Mês",
+    );
+    expect(monthlyHeaderIdx).toBeGreaterThan(annualHeaderIdx);
+    const monthlyRowCount = rows.length - monthlyHeaderIdx - 1;
+    expect(monthlyRowCount).toBe(baseRentVsBuy.horizonMonths + 1);
   });
 });
 

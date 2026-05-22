@@ -360,18 +360,75 @@ export function buildRentVsBuySheet(payload: ExportPayload): ExportCell[][] {
       ],
     ];
   }
+
+  const finalBuy = rvb.buyTimeline[rvb.buyTimeline.length - 1];
+  const finalRent = rvb.rentTimeline[rvb.rentTimeline.length - 1];
+  const diffPctFraction = finalRent.netWorth.isZero()
+    ? null
+    : finalBuy.netWorth
+        .minus(finalRent.netWorth)
+        .div(finalRent.netWorth.abs());
+
   const rows: ExportCell[][] = [
+    [txt("Resumo aluguel vs. compra")],
+    [txt("Métrica"), txt("Valor")],
+    [txt("Vencedor"), txt(scenarioLabel(rvb.summary.bestScenario))],
+    [txt("Patrimônio final (comprar)"), money(finalBuy.netWorth)],
+    [txt("Patrimônio final (alugar + investir)"), money(finalRent.netWorth)],
+    [txt("Diferença (R$)"), money(rvb.summary.netWorthDifferenceFinal)],
     [
+      txt("Diferença (%)"),
+      diffPctFraction === null ? txt("—") : percent(diffPctFraction),
+    ],
+    [
+      txt("Mês de break-even"),
+      rvb.summary.breakEvenMonth === null
+        ? txt("Não atinge")
+        : integer(rvb.summary.breakEvenMonth),
+    ],
+    [],
+    [txt("Resumo anual")],
+    [
+      txt("Ano"),
       txt("Mês"),
-      txt("Aluguel"),
       txt("Patrimônio (comprar)"),
-      txt("Valor do imóvel"),
-      txt("Saldo devedor"),
-      txt("Capital investido (comprar)"),
       txt("Patrimônio (alugar)"),
-      txt("Diferença (comprar − alugar)"),
+      txt("Diferença"),
     ],
   ];
+
+  const horizonMonths = rvb.buyTimeline.length - 1;
+  const annualMonths: number[] = [];
+  for (let m = 12; m <= horizonMonths; m += 12) annualMonths.push(m);
+  if (
+    annualMonths.length === 0 ||
+    annualMonths[annualMonths.length - 1] !== horizonMonths
+  ) {
+    annualMonths.push(horizonMonths);
+  }
+  for (const m of annualMonths) {
+    const buy = rvb.buyTimeline[m];
+    const rent = rvb.rentTimeline[m];
+    rows.push([
+      integer(Math.ceil(m / 12)),
+      integer(m),
+      money(buy.netWorth),
+      money(rent.netWorth),
+      money(buy.netWorth.minus(rent.netWorth)),
+    ]);
+  }
+
+  rows.push([], [txt("Detalhamento mensal")]);
+  rows.push([
+    txt("Mês"),
+    txt("Aluguel"),
+    txt("Patrimônio (comprar)"),
+    txt("Valor do imóvel"),
+    txt("Saldo devedor"),
+    txt("Capital investido (comprar)"),
+    txt("Patrimônio (alugar)"),
+    txt("Diferença (comprar − alugar)"),
+  ]);
   const horizon = rvb.buyTimeline.length;
   for (let i = 0; i < horizon; i++) {
     const buy = rvb.buyTimeline[i];

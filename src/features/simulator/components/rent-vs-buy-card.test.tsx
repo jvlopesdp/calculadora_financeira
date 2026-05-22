@@ -137,14 +137,31 @@ describe("RentVsBuyCard", () => {
     const badge = await screen.findByTestId("best-scenario-badge");
     expect(badge).toBeInTheDocument();
     expect(["buy", "rent", "tie"]).toContain(badge.getAttribute("data-scenario"));
+    expect(screen.getByText(/^vencedor:$/i)).toBeInTheDocument();
     expect(
       screen.getByText(/patrimônio final \(comprar\)/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/patrimônio final \(alugar\)/i),
+      screen.getByText(/patrimônio final \(alugar \+ investir\)/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/^diferença$/i)).toBeInTheDocument();
-    expect(screen.getByText(/ponto de equilíbrio/i)).toBeInTheDocument();
+    expect(screen.getByText(/diferença \(r\$\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/diferença \(%\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/mês de break-even/i)).toBeInTheDocument();
+  });
+
+  it("renders an annual summary table with one row per year", async () => {
+    renderCard({ financing: defaultFinancing });
+    await fillAllValid();
+    const table = await screen.findByTestId("rent-vs-buy-annual-table");
+    expect(table).toBeInTheDocument();
+    // Horizon = 360 months → 30 yearly rows (m=12, 24, ..., 360).
+    const rows = table.querySelectorAll("tbody tr");
+    expect(rows.length).toBe(30);
+    expect(rows[0].textContent).toMatch(/ano 1/i);
+    expect(rows[29].textContent).toMatch(/ano 30/i);
+    // Header labels exist
+    expect(table.textContent).toMatch(/patrimônio \(comprar\)/i);
+    expect(table.textContent).toMatch(/patrimônio \(alugar\)/i);
   });
 
   it("falls back to empty-state message when financing is missing", async () => {
@@ -161,7 +178,7 @@ describe("RentVsBuyCard", () => {
   it("recomputes the results when an input changes", async () => {
     renderCard({ financing: defaultFinancing });
     await fillAllValid();
-    const diferencaLabel = await screen.findByText(/^diferença$/i);
+    const diferencaLabel = await screen.findByText(/diferença \(r\$\)/i);
     const diferencaCell = diferencaLabel.parentElement!;
     const initialDiff = diferencaCell.textContent ?? "";
 
