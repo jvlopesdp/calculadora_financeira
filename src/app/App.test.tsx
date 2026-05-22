@@ -152,7 +152,7 @@ describe("AppRoutes", () => {
     });
     renderAt("/historico");
     expect(
-      screen.getByRole("heading", { level: 3, name: /^histórico$/i }),
+      screen.getByRole("heading", { level: 3, name: /^seus financiamentos$/i }),
     ).toBeInTheDocument();
   });
 

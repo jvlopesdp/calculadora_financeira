@@ -21,6 +21,10 @@ Top-level components. Conventions for the dashboard-01 shell live here.
 
 The shell is only mounted under the `<AppShell>` layout route in `src/app/routes.tsx`. Auth pages render under `<AuthLayout>` and never see `SidebarProvider`, so they don't need to mock it in tests.
 
+## Available shadcn primitives under `ui/`
+
+Before adding a new shadcn block, grep `ui/` — most common primitives are already hand-written here: `button`, `card`, `input`, `label`, `form`, `select`, `tabs`, `separator`, `tooltip`, `sheet`, `dialog`, `alert`, `progress`, `avatar`, `dropdown-menu`, `sidebar`, `skeleton`. They follow upstream shadcn conventions (CVA variants, `cn(...)` for class merging, `data-state` selectors, forwardRef) and use `react-router-dom` instead of `next/*` where router APIs apply. `dialog`, `alert`, `progress` were added in US-030 — the Dialog is center-positioned (mirrors the Sheet primitive but with `max-w-lg`); the Progress is a plain `role="progressbar"` div (no Radix dependency).
+
 ## DataTable
 
 `data-table.tsx` is the canonical generic table surface for the app. Typed `DataTable<TRow>` with `columns: DataTableColumn<TRow>[]`, `data: TRow[]`, `pageSize?: 12 | 24`. No drag-and-drop, no external table library — the upstream `dashboard-01` TanStack/DnD demo was deliberately replaced (US-024).

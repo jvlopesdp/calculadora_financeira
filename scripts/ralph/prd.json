@@ -607,8 +607,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 30,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added shadcn Dialog/Alert/Progress primitives (src/components/ui/{dialog,alert,progress}.tsx) since they did not exist. Lightweight API client at src/lib/api-client.ts wraps fetch with credentials: same-origin so the Better Auth session cookie rides along. Per-scenario payments are fetched lazily in Promise.all so the list shows true saldo devedor + parcelas restantes via replayPayments(). buildHistoricoKpis kept as placeholder per scope. Route /historico/:id click target lands on NotFoundPage until US-031 lands the detail page. App.test.tsx assertion updated to match new outer CardTitle (Seus financiamentos)."
     },
     {
       "id": "US-031",
