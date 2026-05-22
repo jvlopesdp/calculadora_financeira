@@ -23,7 +23,21 @@ The shell is only mounted under the `<AppShell>` layout route in `src/app/routes
 
 ## Block-content placeholders
 
-`chart-area-interactive.tsx`, `data-table.tsx` are stubbed scaffolds — the upstream `dashboard-01` ships richer demos (TanStack Table + DnD-Kit + recharts). The real charts/tables for this app live under `src/features/simulator/components/*`. Future stories may swap the stubs in for KPI surfaces, but consumers should keep importing from `@/components/<name>` so the swap is local.
+`data-table.tsx` is a stubbed scaffold — the upstream `dashboard-01` ships a richer TanStack Table + DnD-Kit demo. The real domain table for this app lives at `src/features/simulator/components/amortization-table.tsx`. Future stories may swap the stub in, but consumers should keep importing from `@/components/data-table` so the swap is local.
+
+## ChartAreaInteractive
+
+`chart-area-interactive.tsx` is the canonical multi-series chart surface for shell pages. Generic Card wrapper around recharts `LineChart`/`AreaChart` with:
+
+- `views: ChartView[]` — each view has `id`, `label`, `data: ChartPoint[]`, `series: SeriesData[]`, optional `kind` (`"line" | "area"`), `description`, `emptyState`. When `views.length > 1`, a `Tabs`-based view selector is rendered; with one view, no tabs appear.
+- `defaultView?: string`, `defaultRange?: "1y" | "5y" | "all"`.
+- Built-in time-range toggle (1 ano / 5 anos / Total) in the CardHeader; slices `data` by `month <= bound`.
+- Tooltip is `ChartAreaTooltipContent`: `Mês N · {formatMonths}` header and per-series `{name} · {formatBRL}` rows with the series colour swatch. Always pt-BR.
+- Series `color` is a CSS token (`"var(--chart-1)"` … `"var(--chart-5)"`) so light/dark themes work via tokens in `src/index.css`.
+- `ChartPoint` is intentionally minimal (`{ month: number }`); concrete data types from `src/features/simulator/components/charts/*-data.ts` flow through as structural subtypes. Keep the engine calls in the `*-data.ts` builders — `ChartAreaInteractive` is pure presentation.
+- Stacked area composition: set `kind: "area"` + give two series the same `stackId`. The default `fillOpacity` is `0.5`.
+
+**Don't reintroduce per-chart components.** The old `OutstandingBalanceChart`, `NetWorthChart`, `InstallmentCompositionChart`, `InterestSavingsChart` were collapsed into this one shell in US-023. New chart needs become a `ChartView` entry, not a new file under `features/simulator/components/charts/`.
 
 ## SectionCards (KPI grid)
 

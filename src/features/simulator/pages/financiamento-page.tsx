@@ -1,5 +1,9 @@
 import { useMemo } from "react";
 
+import {
+  ChartAreaInteractive,
+  type ChartView,
+} from "@/components/chart-area-interactive";
 import { SectionCards } from "@/components/section-cards";
 import {
   Card,
@@ -9,10 +13,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AmortizationTable } from "@/features/simulator/components/amortization-table";
-import { InstallmentCompositionChart } from "@/features/simulator/components/charts/installment-composition-chart";
-import { InterestSavingsChart } from "@/features/simulator/components/charts/interest-savings-chart";
-import { NetWorthChart } from "@/features/simulator/components/charts/net-worth-chart";
-import { OutstandingBalanceChart } from "@/features/simulator/components/charts/outstanding-balance-chart";
+import { prepareInstallmentCompositionData } from "@/features/simulator/components/charts/installment-composition-chart-data";
+import { prepareInterestSavingsData } from "@/features/simulator/components/charts/interest-savings-chart-data";
+import { prepareOutstandingBalanceData } from "@/features/simulator/components/charts/outstanding-balance-chart-data";
 import { ExportCard } from "@/features/simulator/components/export-card";
 import { FinancingForm } from "@/features/simulator/components/financing-form";
 import { RentVsBuyCard } from "@/features/simulator/components/rent-vs-buy-card";
@@ -54,6 +57,83 @@ export function FinanciamentoPage() {
     [financing, extraMonthly, extraStrategy],
   );
 
+  const chartViews = useMemo<ChartView[]>(() => {
+    const balance = prepareOutstandingBalanceData(
+      financing,
+      extraMonthly,
+      extraStrategy,
+    );
+    const savings = prepareInterestSavingsData(
+      financing,
+      extraMonthly,
+      extraStrategy,
+    );
+    const composition = prepareInstallmentCompositionData(
+      financing,
+      extraMonthly,
+      extraStrategy,
+    );
+    return [
+      {
+        id: "balance",
+        label: "Saldo devedor",
+        description:
+          "Comparação entre o saldo base e o saldo com pagamento extra.",
+        kind: "line",
+        data: balance ?? [],
+        series: [
+          { key: "saldoBase", name: "Saldo base", color: "var(--chart-1)" },
+          {
+            key: "saldoExtra",
+            name: "Saldo com extra",
+            color: "var(--chart-3)",
+          },
+        ],
+        emptyState:
+          "Preencha os dados de financiamento para visualizar o saldo devedor.",
+      },
+      {
+        id: "savings",
+        label: "Juros acumulados",
+        description:
+          "Economia acumulada de juros ao longo do tempo com o pagamento extra.",
+        kind: "line",
+        data: savings ?? [],
+        series: [
+          {
+            key: "economiaAcumulada",
+            name: "Economia acumulada",
+            color: "var(--chart-5)",
+          },
+        ],
+        emptyState: "Informe um valor extra para visualizar a economia.",
+      },
+      {
+        id: "composition",
+        label: "Composição da parcela",
+        description: "Como cada parcela se divide entre juros e amortização.",
+        kind: "area",
+        data: composition ?? [],
+        series: [
+          {
+            key: "juros",
+            name: "Juros",
+            color: "var(--chart-2)",
+            stackId: "installment",
+          },
+          {
+            key: "amortizacao",
+            name: "Amortização",
+            color: "var(--chart-4)",
+            stackId: "installment",
+          },
+        ],
+        emptyState:
+          "Preencha os dados de financiamento para visualizar a composição das parcelas.",
+      },
+    ];
+  }, [financing, extraMonthly, extraStrategy]);
+
   return (
     <>
       <SectionCards items={kpis} />
@@ -85,20 +165,12 @@ export function FinanciamentoPage() {
 
         <AmortizationTable />
 
-        <Card className="md:col-span-12">
-          <CardHeader>
-            <CardTitle>Gráficos</CardTitle>
-            <CardDescription>
-              Evolução do saldo, patrimônio e composição das parcelas.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-8">
-            <NetWorthChart />
-            <OutstandingBalanceChart />
-            <InstallmentCompositionChart />
-            <InterestSavingsChart />
-          </CardContent>
-        </Card>
+        <ChartAreaInteractive
+          className="md:col-span-12"
+          title="Gráficos"
+          views={chartViews}
+          defaultView="balance"
+        />
 
         <ExportCard />
       </div>
