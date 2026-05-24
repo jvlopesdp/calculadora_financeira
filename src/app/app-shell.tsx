@@ -6,6 +6,7 @@ import {
   SidebarInset,
   SidebarProvider,
 } from "@/components/ui/sidebar";
+import { MigrateLocalSimulationDialog } from "@/features/historico/components/migrate-local-simulation-dialog";
 
 /**
  * Authenticated app shell scaffolded from the shadcn `dashboard-01` block.
@@ -30,6 +31,7 @@ export function AppShell() {
             <div className="flex flex-col gap-4 px-4 py-4 md:gap-6 md:py-6 lg:px-6">
               <Outlet />
             </div>
+            <MigrateLocalSimulationDialog />
           </div>
         </div>
       </SidebarInset>
