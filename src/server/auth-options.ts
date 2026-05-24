@@ -20,4 +20,18 @@ export const sharedAuthOptions = {
     "http://localhost:5173",
     "https://calculadorafinanceira.app",
   ],
+  rateLimit: {
+    enabled: true,
+    storage: "database",
+    customRules: {
+      // 10 attempts per 15 minutes per IP — login burst protection.
+      "/sign-in/email": { window: 15 * 60, max: 10 },
+      // 5 sign-ups per hour per IP — signup abuse protection.
+      "/sign-up/email": { window: 60 * 60, max: 5 },
+      // Email-based limit is enforced by our before-hook in `auth.ts` against
+      // the same `rateLimit` D1 table; disable the built-in IP-based rule for
+      // this path so the two never compete.
+      "/request-password-reset": false,
+    },
+  },
 } satisfies Partial<BetterAuthOptions>;

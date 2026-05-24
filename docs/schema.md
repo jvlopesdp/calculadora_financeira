@@ -140,6 +140,26 @@ supports `replayPayments` and the chronological list view.
 
 ---
 
+## `0003_rate_limit.sql` — Better Auth rate limit table
+
+Backs `betterAuth({ rateLimit: { storage: "database" } })` for the IP-based
+limits on `/sign-in/email` (10/15min) and `/sign-up/email` (5/h), and is also
+reused by our custom email-based limiter (`src/server/rate-limit.ts`) for
+`/request-password-reset` (3/h per email). Keys use the table's `key` column;
+Better Auth writes `<ip>|<path>` and our before-hook writes
+`forgot:email:<email>` to keep namespaces from colliding.
+
+### `rateLimit`
+
+| Column        | Type    | Notes                                            |
+| ------------- | ------- | ------------------------------------------------ |
+| `id`          | TEXT PK | Better Auth-generated string ID                  |
+| `key`         | TEXT    | required, **unique** (limit bucket identifier)   |
+| `count`       | INTEGER | required (request count within the window)      |
+| `lastRequest` | INTEGER | required (epoch milliseconds of last request)   |
+
+---
+
 ## Regenerating the Better Auth migration
 
 ```bash

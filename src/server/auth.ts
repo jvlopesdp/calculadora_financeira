@@ -8,6 +8,7 @@ import {
   verifyEmailTemplate,
 } from "./email-templates";
 import type { Env } from "./env";
+import { applyRateLimit, resolveForgotPasswordRule } from "./rate-limit";
 import { verifyTurnstile } from "./turnstile";
 
 const TURNSTILE_PROTECTED_PATHS = new Set<string>([
@@ -69,20 +70,46 @@ export function createAuth(env: Env) {
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
-        if (!ctx.path || !TURNSTILE_PROTECTED_PATHS.has(ctx.path)) {
-          return;
+        if (!ctx.path) return;
+        const body = (ctx.body ?? undefined) as
+          | Record<string, unknown>
+          | undefined;
+
+        // Email-based rate limit for password reset. IP-based limits for
+        // /sign-in/email and /sign-up/email are configured via Better Auth's
+        // built-in `rateLimit.customRules` in `auth-options.ts`.
+        const forgotRule = resolveForgotPasswordRule(ctx.path, body);
+        if (forgotRule) {
+          const result = await applyRateLimit(env.DB, forgotRule);
+          if (!result.ok) {
+            const retryAfter = String(result.retryAfter);
+            throw new APIError(
+              "TOO_MANY_REQUESTS",
+              {
+                message:
+                  "Muitas tentativas. Aguarde antes de pedir um novo email de redefinição.",
+                code: "RATE_LIMIT_EXCEEDED",
+              },
+              {
+                "Retry-After": retryAfter,
+                "X-Retry-After": retryAfter,
+              },
+            );
+          }
         }
-        const body = (ctx.body ?? {}) as Record<string, unknown>;
-        const rawToken = body.turnstileToken;
-        const token = typeof rawToken === "string" ? rawToken : "";
-        const remoteIp = extractRemoteIp(ctx.request?.headers);
-        const ok = await verifyTurnstile(token, env, remoteIp);
-        if (!ok) {
-          throw new APIError("BAD_REQUEST", {
-            message:
-              "Verificação anti-bot inválida. Recarregue a página e tente novamente.",
-            code: "TURNSTILE_INVALID",
-          });
+
+        if (TURNSTILE_PROTECTED_PATHS.has(ctx.path)) {
+          const rawToken = body?.turnstileToken;
+          const token = typeof rawToken === "string" ? rawToken : "";
+          const remoteIp = extractRemoteIp(ctx.request?.headers);
+          const ok = await verifyTurnstile(token, env, remoteIp);
+          if (!ok) {
+            throw new APIError("BAD_REQUEST", {
+              message:
+                "Verificação anti-bot inválida. Recarregue a página e tente novamente.",
+              code: "TURNSTILE_INVALID",
+            });
+          }
         }
       }),
     },

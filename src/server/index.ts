@@ -15,9 +15,24 @@ app.get("/api/health", (c) =>
   }),
 );
 
-app.on(["POST", "GET"], "/api/auth/*", (c) =>
-  createAuth(c.env).handler(c.req.raw),
-);
+app.on(["POST", "GET"], "/api/auth/*", async (c) => {
+  const response = await createAuth(c.env).handler(c.req.raw);
+  // Better Auth's built-in rate limiter sets `X-Retry-After` on 429 responses.
+  // Mirror it to the standard `Retry-After` header so clients/CDNs see both.
+  if (response.status === 429) {
+    const xRetry = response.headers.get("X-Retry-After");
+    if (xRetry && !response.headers.get("Retry-After")) {
+      const headers = new Headers(response.headers);
+      headers.set("Retry-After", xRetry);
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+    }
+  }
+  return response;
+});
 
 // Sub-apps that bring their own `requireUser` middleware are mounted here.
 // They must register BEFORE the generic `app.use("/api/*", requireUser)` below
