@@ -1,5 +1,10 @@
 /// <reference types="@cloudflare/workers-types" />
 
+declare global {
+  /** Build-time injected commit SHA (Vite `define`). Falls back to "dev" outside CI. */
+  const __COMMIT_SHA__: string;
+}
+
 export interface Env {
   /** D1 database binding declared in wrangler.jsonc */
   DB: D1Database;

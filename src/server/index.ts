@@ -11,6 +11,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 app.get("/api/health", (c) =>
   c.json({
     ok: true,
+    version: __COMMIT_SHA__,
     environment: c.env.ENVIRONMENT ?? "production",
   }),
 );
