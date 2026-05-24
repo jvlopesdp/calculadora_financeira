@@ -754,8 +754,8 @@
         "Comentar no PRD que branch protection deve marcar este workflow como required (manual)"
       ],
       "priority": 38,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Branch protection deve marcar este workflow (CI) como required check em main (configuração manual no GitHub: Settings → Branches → main → Require status checks → build)."
     },
     {
       "id": "US-039",
