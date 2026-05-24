@@ -2,20 +2,25 @@
 
 ## Project
 
-Browser-only financial simulation app for mortgage/loan analysis. No login, no backend, no remote database.
+Financial simulation app for mortgage/loan analysis. Frontend: Vite + React SPA. Backend: a single Cloudflare Worker (Hono) serving `/api/*` and the SPA assets. Authenticated users persist their financing scenarios and payments to Cloudflare D1. The deployed domain is `calculadorafinanceira.app`.
 
 ---
 
 ## Stack
 
-- **Runtime:** Bun
-- **Framework:** Vite + React + TypeScript
-- **Styling:** Tailwind CSS + shadcn/ui + DiceUI
+- **Runtime:** Bun (local dev + scripts)
+- **Frontend:** Vite + React 19 + TypeScript + React Router
+- **Styling:** Tailwind CSS + shadcn/ui
 - **Charts:** Recharts
 - **Precision:** Decimal.js
 - **Export:** SheetJS/xlsx
-- **Tests:** Vitest
-- **Deploy:** Cloudflare Pages or Vercel
+- **Tests:** Vitest (+ Testing Library / jsdom)
+- **Worker:** Cloudflare Workers + Hono (`src/server/`)
+- **Database:** Cloudflare D1 (SQLite) via migrations in `migrations/`
+- **Auth:** Better Auth (email/password + verification + password reset, session cookies)
+- **Email:** Resend (transactional — verify e-mail, password reset)
+- **Anti-bot:** Cloudflare Turnstile (sign-up / sign-in / forgot-password)
+- **Deploy:** Cloudflare Workers (single worker handles API + static SPA assets) via Wrangler
 
 ---
 
@@ -35,15 +40,21 @@ Browser-only financial simulation app for mortgage/loan analysis. No login, no b
 
 ```
 src/
-  core/finance/       # financial calculation engine
-  features/simulator/ # main simulation UI
-  components/ui/      # shadcn + DiceUI components
+  app/                # router chrome (BrowserRouter, AppShell, ProtectedRoute, 404)
+  core/finance/       # financial calculation engine (pure, Decimal.js)
+  features/
+    simulator/        # main simulation UI
+    historico/        # authenticated history / saved scenarios + payments
+    auth/             # login, register, forgot/reset, verify-email pages
+  components/ui/      # shadcn primitives
   components/finance/ # domain financial components
-  lib/formatters/     # currency, percentage, number
-  lib/storage/        # localStorage helpers
-  lib/export/         # Excel export logic
+  lib/                # api-client, auth-client, formatters, storage, helpers
+  server/             # Cloudflare Worker (Hono): /api/auth/*, /api/scenarios/*, etc.
+    routes/           # Hono sub-apps per resource
+    middleware/       # requireUser, etc.
   types/              # shared domain types
-  tests/              # unit tests
+  tests/              # cross-cutting unit tests
+migrations/           # D1 SQL migrations (better-auth, domain, rate-limit)
 ```
 
 ---
@@ -86,9 +97,10 @@ Do not run simulations with invalid input.
 
 ## State
 
-- Local React state by default.
+- Local React state by default for UI.
 - Use derived state — do not duplicate calculated values.
-- `localStorage` only for: last simulation, user preferences, optional saved scenarios.
+- **D1 is the source of truth** for authenticated user data: financing scenarios (`financing_scenarios`) and their payments (`scenario_payments`). The SPA reads/writes through `/api/scenarios/*` via `src/lib/api-client.ts`.
+- `localStorage` is for UI preferences only (sidebar collapsed state, last unsaved simulation draft, one-time migration flags). It is **not** a substitute for D1 once the user is authenticated.
 - No Zustand, Redux, or server state libraries.
 
 ---
@@ -108,6 +120,8 @@ Every financial rule must have unit tests. Required coverage:
 - Property appreciation and rent adjustment
 - Excel export data structure
 
+Server-side (Worker) tests live alongside the route/middleware they exercise (`src/server/**/*.test.ts`) and drive Hono via `app.request(path, init, env)` with a fake D1 — no miniflare required.
+
 ---
 
 ## Excel Export
@@ -124,12 +138,13 @@ Every financial rule must have unit tests. Required coverage:
 CI runs on pull requests and `main`. Steps:
 
 1. `bun install`
-2. Type check
+2. Type check (SPA + Worker via `tsc -b`)
 3. Lint
-4. Test
-5. Build
+4. Test (Vitest, all suites)
+5. Build (SPA + Worker via the cloudflare/vite-plugin)
+6. `wrangler deploy --dry-run` smoke
 
-Block merge on any failure. Auto-deploy to production from `main`. Preview deploys for PRs.
+Block merge on any failure. Auto-deploy to production from `main` (`wrangler deploy`). D1 migrations are applied to remote before deploy (`bun run db:migrate:remote`).
 
 ---
 
@@ -137,9 +152,10 @@ Block merge on any failure. Auto-deploy to production from `main`. Preview deplo
 
 A task is complete only when:
 
-- Build passes
+- Build passes (SPA + Worker)
 - Type check passes
 - Lint passes
 - Tests pass
+- D1 migrations applied (locally via `bun run db:migrate:local`; remote via `bun run db:migrate:remote` for the CI/deploy step)
 - Financial logic remains in `core/finance`, not in components
 - No unnecessary dependency added

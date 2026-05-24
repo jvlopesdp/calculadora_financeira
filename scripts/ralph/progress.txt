@@ -784,3 +784,16 @@ Started: Mon May 18 19:39:03 PDT 2026
   - Treating "external close" (escape / overlay click) as Descartar avoids a "they keep getting prompted forever" footgun: if the user X's out, we still set the flag.
   - When seeding test localStorage, also clear it in `afterEach` even when individual tests don't use it — vitest isolates jsdom per file but NOT per `it()` block, so a leaked `migrationDone=1` between tests in the same file makes the dialog stop appearing.
 ---
+
+## 2026-05-24 - US-037
+- Rewrote `CLAUDE.md` (project description, Stack, Project Structure, State, CI/CD, Definition of Done) to reflect the Workers + Hono + D1 + Better Auth + Resend + Turnstile architecture; removed the obsolete "browser-only, no login, no backend" framing and the obsolete "Cloudflare Pages or Vercel" deploy mention.
+- Replaced the one-line `README.md` with full setup-and-run instructions: `bun install`, `cp .env.example .env.local`, `bunx --bun wrangler d1 create calculadora-financeira-db`, `bun run db:migrate:local`, `bun run dev`. Added env-var reference table, scripts overview, project structure, production domain `calculadorafinanceira.app`, and `bunx --bun wrangler` note for Node < 22.
+- Files changed:
+  - `CLAUDE.md` (rewrite)
+  - `README.md` (rewrite — was a single-line description)
+- Quality checks: `bun run typecheck` ✓, `bun run lint` ✓ (1 pre-existing react-refresh warning in `site-header.tsx`, unrelated), `bun run test` (579/579) ✓.
+- **Learnings for future iterations:**
+  - The CLAUDE.md file on disk is actually named `claude.md` (lowercase) — git tracks it under that name despite the project loading it as `CLAUDE.md` via the case-insensitive WSL filesystem. `git status` will show `modified: claude.md`. Don't rename it in a one-off doc edit; rename in a focused commit if ever needed.
+  - `git diff --stat` reports CRLF warnings on these doc edits — the working tree is on WSL but the files were committed with LF. The warning is benign; do not fight it on doc-only edits.
+  - The Write tool sometimes returns `ENOENT` on `/workspace/README.md` on the first attempt due to a transient case-insensitivity glitch, while the underlying write actually succeeds. If you hit that, re-Read the file and verify rather than retrying blindly (a retry triggered "File has been modified" since the first write did land).
+---
