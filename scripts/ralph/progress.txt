@@ -820,3 +820,18 @@ Started: Mon May 18 19:39:03 PDT 2026
   - **`timeout-minutes: 10` on the job, not on individual steps**: keeps the workflow honest about the < 5 min target without flaking on the slowest occasional CI run (vitest cold-start on a fresh runner). Step-level timeouts would just add false-failure modes.
   - **Branch protection is documented in PRD `notes` field, not in code**: GitHub branch-protection settings can't be expressed in a workflow YAML, so the PRD's "mark required" requirement is recorded as a `notes:` reminder for the human reviewer to flip the toggle once `ci.yml` has run on at least one PR (GitHub requires the check to have existed before it can be marked required).
 ---
+
+## 2026-05-24 - US-039: GitHub Actions — deploy automático em push para main (deploy.yml)
+- Created `.github/workflows/deploy.yml` that runs on `push: branches: [main]`, in concurrency group `production-deploy` with `cancel-in-progress: false`.
+- Steps mirror ci.yml (checkout, setup-bun, setup-node 20, bun install cache, install, lint, typecheck, test, build), then add: `bunx wrangler d1 migrations apply calculadora-financeira-db --remote` and `bunx wrangler deploy`. Both steps read `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` from `secrets` via job-level `env`.
+- Final step writes a Job Summary (`$GITHUB_STEP_SUMMARY`) with status, deploy URL `https://calculadorafinanceira.app`, commit SHA, ref, and actor — runs with `if: always()` so failures still produce a summary.
+- Documented the required GitHub Actions secrets and token scopes (Workers Scripts:Edit, D1:Edit, Account Settings:Read) in new `docs/deploy.md`, plus the deploy pipeline and local equivalents.
+- Files changed: `.github/workflows/deploy.yml` (new), `docs/deploy.md` (new), `scripts/ralph/prd.json` (US-039.passes → true), `scripts/ralph/progress.txt`.
+- Quality checks: `bun run lint` (1 pre-existing warning, 0 errors), `bun run typecheck` (clean), `bun run test` (48 test files, all pass), `bun run build` (success).
+- **Learnings for future iterations:**
+  - The PR-time workflow `ci.yml` already runs `branches-ignore: [main]`, so `deploy.yml` is the only thing that runs on `push: main`. Keep that split — otherwise a merge to main would trigger CI and deploy in parallel against the same SHA.
+  - Use job-level `env:` (not step-level) for Cloudflare creds so every wrangler step inherits them without duplication.
+  - Job summary step should be `if: always()` — otherwise a failing deploy leaves no breadcrumb in the run UI.
+  - Concurrency `cancel-in-progress: false` is important for deploys (cancelling mid-migration is worse than queueing).
+  - The harness auto-backgrounds long-running `bun run test` invocations even without `run_in_background`, but the captured-output file may be empty; the actual exit code from the harness is still trustworthy. Capture output to your own `/tmp/foo.log` if you need to read it.
+---

@@ -772,7 +772,7 @@
         "Workflow falha visível em caso de erro de migration ou deploy"
       ],
       "priority": 39,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
