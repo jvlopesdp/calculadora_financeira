@@ -10,7 +10,11 @@
     "not_found_handling": "single-page-application"
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
   },
   "vars": {
     "EMAIL_FROM": "no-reply@mail.visagismeai.com",
