@@ -13,14 +13,14 @@
     "enabled": true
   },
   "vars": {
-    "EMAIL_FROM": "no-reply@calculadorafinanceira.app",
+    "EMAIL_FROM": "no-reply@mail.visagismeai.com",
     "ENVIRONMENT": "production"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "calculadora-financeira-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "3ebfd492-5508-4920-8be7-84f59f922c60",
       "migrations_dir": "migrations"
     }
   ],

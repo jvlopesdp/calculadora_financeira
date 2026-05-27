@@ -45,6 +45,8 @@ jobs:
         run: bun run test
 
       - name: Build
+        env:
+          VITE_TURNSTILE_SITE_KEY: ${{ secrets.VITE_TURNSTILE_SITE_KEY }}
         run: bun run build
 
       - name: Wrangler dry-run deploy
