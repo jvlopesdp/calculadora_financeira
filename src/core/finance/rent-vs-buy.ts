@@ -13,49 +13,10 @@ const ONE = new Decimal(1);
 // Final-month difference within R$ 0.01 is treated as a tie (matches money rounding).
 const TIE_TOLERANCE = new Decimal("0.01");
 
-export interface RentVsBuyInputs {
-  propertyValue: Decimal;
-  downPayment: Decimal;
-  monthlyRate: Decimal;
-  termMonths: number;
-  system?: AmortizationSystem;
-  monthlyRent: Decimal;
-  annualRentAdjustment: Decimal;
-  annualInvestmentReturn: Decimal;
-  annualAppreciation: Decimal;
-  monthlyOwnershipCosts: Decimal;
-  horizonMonths: number;
-}
-
-export interface BuyTimelineEntry {
-  month: number;
-  propertyValue: Decimal;
-  outstandingBalance: Decimal;
-  investedCapital: Decimal;
-  netWorth: Decimal;
-}
-
-export interface RentTimelineEntry {
-  month: number;
-  rent: Decimal;
-  investedCapital: Decimal;
-  monthlyContribution: Decimal;
-  netWorth: Decimal;
-}
+const DEFAULT_PURCHASE_COST_PCT = new Decimal("0.03");
+const DEFAULT_SALE_COST_PCT = new Decimal("0.06");
 
 export type Scenario = "buy" | "rent" | "tie";
-
-export interface RentVsBuySummary {
-  bestScenario: Scenario;
-  netWorthDifferenceFinal: Decimal;
-  breakEvenMonth: number | null;
-}
-
-export interface RentVsBuyResult {
-  buyTimeline: BuyTimelineEntry[];
-  rentTimeline: RentTimelineEntry[];
-  summary: RentVsBuySummary;
-}
 
 /**
  * Convert an effective annual rate to its equivalent monthly compounding rate:
@@ -66,7 +27,73 @@ export function annualToMonthlyRate(annualRate: Decimal): Decimal {
   return ONE.plus(annualRate).pow(ONE.div(12)).minus(1);
 }
 
-function validateInputs(inputs: RentVsBuyInputs): void {
+/**
+ * Inverse of annualToMonthlyRate: (1 + monthly)^12 - 1.
+ */
+export function monthlyToAnnualRate(monthlyRate: Decimal): Decimal {
+  if (monthlyRate.isZero()) return ZERO;
+  return ONE.plus(monthlyRate).pow(12).minus(1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// New "Investidor Sardinha"-style engine: simulateRentVsBuy
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SimulateRentVsBuyInputs {
+  propertyValue: Decimal;
+  downPayment: Decimal;
+  termMonths: number;
+  /** Effective annual financing rate (e.g. 0.10 for 10%/yr). */
+  annualRate: Decimal;
+  monthlyRent: Decimal;
+  /** Effective annual rent adjustment applied every 12 months. */
+  annualRentAdjustment: Decimal;
+  /** Effective annual property appreciation. */
+  annualPropertyAppreciation: Decimal;
+  /** Effective annual investment return for surplus cash. */
+  annualInvestmentReturn: Decimal;
+  /** Fraction of propertyValue spent up-front on ITBI + escritura. Defaults to 0.03. */
+  purchaseCostPct?: Decimal;
+  /** Fraction of propertyValue deducted at sale (e.g. corretagem). Defaults to 0.06. */
+  saleCostPct?: Decimal;
+  horizonMonths: number;
+  /** Optional amortization system; defaults to PRICE inside the schedule generator. */
+  system?: AmortizationSystem;
+  /** Optional recurring ownership costs (IPTU, condomínio, manutenção). Defaults to zero. */
+  monthlyOwnershipCosts?: Decimal;
+}
+
+export interface SimulateBuyTimelineEntry {
+  month: number;
+  propertyValue: Decimal;
+  outstandingBalance: Decimal;
+  paidInstallment: Decimal;
+  monthlyOwnershipOutflow: Decimal;
+  investedDifference: Decimal;
+  netWorth: Decimal;
+}
+
+export interface SimulateRentTimelineEntry {
+  month: number;
+  rentPaid: Decimal;
+  monthlyContribution: Decimal;
+  investedCapital: Decimal;
+  netWorth: Decimal;
+}
+
+export interface SimulateRentVsBuySummary {
+  bestScenario: Scenario;
+  netWorthDifferenceFinal: Decimal;
+  breakEvenMonth: number | null;
+}
+
+export interface SimulateRentVsBuyResult {
+  buyTimeline: SimulateBuyTimelineEntry[];
+  rentTimeline: SimulateRentTimelineEntry[];
+  summary: SimulateRentVsBuySummary;
+}
+
+function validateSimulateInputs(inputs: SimulateRentVsBuyInputs): void {
   if (inputs.propertyValue.lessThanOrEqualTo(0)) {
     throw new Error("propertyValue must be greater than zero");
   }
@@ -79,8 +106,8 @@ function validateInputs(inputs: RentVsBuyInputs): void {
   if (inputs.termMonths <= 0) {
     throw new Error("termMonths must be greater than zero");
   }
-  if (inputs.monthlyRate.isNegative()) {
-    throw new Error("monthlyRate must be non-negative");
+  if (inputs.annualRate.isNegative()) {
+    throw new Error("annualRate must be non-negative");
   }
   if (inputs.monthlyRent.isNegative()) {
     throw new Error("monthlyRent must be non-negative");
@@ -88,13 +115,27 @@ function validateInputs(inputs: RentVsBuyInputs): void {
   if (inputs.annualRentAdjustment.isNegative()) {
     throw new Error("annualRentAdjustment must be non-negative");
   }
+  if (inputs.annualPropertyAppreciation.isNegative()) {
+    throw new Error("annualPropertyAppreciation must be non-negative");
+  }
   if (inputs.annualInvestmentReturn.isNegative()) {
     throw new Error("annualInvestmentReturn must be non-negative");
   }
-  if (inputs.annualAppreciation.isNegative()) {
-    throw new Error("annualAppreciation must be non-negative");
+  if (inputs.purchaseCostPct && inputs.purchaseCostPct.isNegative()) {
+    throw new Error("purchaseCostPct must be non-negative");
   }
-  if (inputs.monthlyOwnershipCosts.isNegative()) {
+  if (inputs.saleCostPct) {
+    if (inputs.saleCostPct.isNegative()) {
+      throw new Error("saleCostPct must be non-negative");
+    }
+    if (inputs.saleCostPct.greaterThanOrEqualTo(1)) {
+      throw new Error("saleCostPct must be less than 1");
+    }
+  }
+  if (
+    inputs.monthlyOwnershipCosts &&
+    inputs.monthlyOwnershipCosts.isNegative()
+  ) {
     throw new Error("monthlyOwnershipCosts must be non-negative");
   }
   if (inputs.horizonMonths <= 0) {
@@ -102,11 +143,14 @@ function validateInputs(inputs: RentVsBuyInputs): void {
   }
 }
 
-function buildSchedule(inputs: RentVsBuyInputs): ScheduleRow[] {
+function buildSimulateSchedule(
+  inputs: SimulateRentVsBuyInputs,
+  monthlyRate: Decimal,
+): ScheduleRow[] {
   const principal = inputs.propertyValue.minus(inputs.downPayment);
   const financingInputs: FinancingInputs = {
     principal,
-    monthlyRate: inputs.monthlyRate,
+    monthlyRate,
     termMonths: inputs.termMonths,
     system: inputs.system,
   };
@@ -116,50 +160,70 @@ function buildSchedule(inputs: RentVsBuyInputs): ScheduleRow[] {
 }
 
 /**
- * Symmetric monthly comparison:
- * - Both parties start with liquid wealth equal to downPayment. Buyer spends it
- *   on the property; renter invests it.
- * - Each month the lower-spending side invests the difference at the monthly
- *   investment rate. The higher-spending side contributes nothing that month
- *   (no negative contributions / no borrowing to invest).
- * - Buy net worth = propertyValue − outstandingBalance + investedCapital.
- * - Rent net worth = investedCapital.
+ * Month-by-month wealth simulation inspired by Investidor Sardinha's rent-vs-buy
+ * comparator.
  *
- * The break-even month is the first month ≥ 1 where the buy net worth catches
- * up to (or exceeds) the rent net worth. If buy never catches up, it is null.
+ * - Both parties start with the same liquid wealth = `downPayment + purchaseCosts`.
+ *   The buyer spends it on the property entry (down payment + ITBI/escritura), so
+ *   their invested cash starts at zero. The renter keeps everything invested.
+ * - Each month, the side with the lower monthly outflow invests the difference.
+ *   The higher-spending side contributes nothing that month (no borrowing to
+ *   invest, no negative contributions).
+ * - Buy net worth = propertyValue · (1 − saleCostPct) − outstandingBalance +
+ *   investedDifference. This already accounts for corretagem at exit.
+ * - Rent net worth = investedCapital (rent paid is already debited by reducing
+ *   the renter's monthly contribution).
+ * - The break-even month is the first month ≥ 1 where buy ≥ rent. Null if buy
+ *   never catches up.
  */
-export function compareRentVsBuy(inputs: RentVsBuyInputs): RentVsBuyResult {
-  validateInputs(inputs);
+export function simulateRentVsBuy(
+  inputs: SimulateRentVsBuyInputs,
+): SimulateRentVsBuyResult {
+  validateSimulateInputs(inputs);
 
+  const purchaseCostPct = inputs.purchaseCostPct ?? DEFAULT_PURCHASE_COST_PCT;
+  const saleCostPct = inputs.saleCostPct ?? DEFAULT_SALE_COST_PCT;
+  const monthlyOwnershipCosts = inputs.monthlyOwnershipCosts ?? ZERO;
+
+  const monthlyRate = annualToMonthlyRate(inputs.annualRate);
   const monthlyReturn = annualToMonthlyRate(inputs.annualInvestmentReturn);
-  const monthlyAppreciation = annualToMonthlyRate(inputs.annualAppreciation);
-  const schedule = buildSchedule(inputs);
+  const monthlyAppreciation = annualToMonthlyRate(
+    inputs.annualPropertyAppreciation,
+  );
+
+  const schedule = buildSimulateSchedule(inputs, monthlyRate);
   const principal = inputs.propertyValue.minus(inputs.downPayment);
+  const purchaseCosts = inputs.propertyValue.times(purchaseCostPct);
 
   let buyPropertyValue = inputs.propertyValue;
   let buyOutstandingBalance = roundMoney(principal);
-  let buyInvestedCapital = ZERO;
-  let rentInvestedCapital = roundMoney(inputs.downPayment);
+  let buyInvested = ZERO;
+  let rentInvested = roundMoney(inputs.downPayment.plus(purchaseCosts));
   let currentRent = inputs.monthlyRent;
 
-  const buyTimeline: BuyTimelineEntry[] = [
+  const buyTimeline: SimulateBuyTimelineEntry[] = [
     {
       month: 0,
       propertyValue: roundMoney(buyPropertyValue),
       outstandingBalance: buyOutstandingBalance,
-      investedCapital: buyInvestedCapital,
+      paidInstallment: ZERO,
+      monthlyOwnershipOutflow: ZERO,
+      investedDifference: ZERO,
       netWorth: roundMoney(
-        buyPropertyValue.minus(buyOutstandingBalance).plus(buyInvestedCapital),
+        buyPropertyValue
+          .times(ONE.minus(saleCostPct))
+          .minus(buyOutstandingBalance)
+          .plus(buyInvested),
       ),
     },
   ];
-  const rentTimeline: RentTimelineEntry[] = [
+  const rentTimeline: SimulateRentTimelineEntry[] = [
     {
       month: 0,
-      rent: roundMoney(currentRent),
-      investedCapital: rentInvestedCapital,
+      rentPaid: ZERO,
       monthlyContribution: ZERO,
-      netWorth: rentInvestedCapital,
+      investedCapital: rentInvested,
+      netWorth: rentInvested,
     },
   ];
 
@@ -174,7 +238,7 @@ export function compareRentVsBuy(inputs: RentVsBuyInputs): RentVsBuyResult {
     const installment = scheduleRow ? scheduleRow.installment : ZERO;
     const newOutstandingBalance = scheduleRow ? scheduleRow.balance : ZERO;
 
-    const buyOutflow = installment.plus(inputs.monthlyOwnershipCosts);
+    const buyOutflow = installment.plus(monthlyOwnershipCosts);
     const rentOutflow = currentRent;
 
     let buyContribution = ZERO;
@@ -186,10 +250,10 @@ export function compareRentVsBuy(inputs: RentVsBuyInputs): RentVsBuyResult {
       rentContribution = diff.negated();
     }
 
-    buyInvestedCapital = buyInvestedCapital
+    buyInvested = buyInvested
       .times(ONE.plus(monthlyReturn))
       .plus(buyContribution);
-    rentInvestedCapital = rentInvestedCapital
+    rentInvested = rentInvested
       .times(ONE.plus(monthlyReturn))
       .plus(rentContribution);
 
@@ -197,22 +261,27 @@ export function compareRentVsBuy(inputs: RentVsBuyInputs): RentVsBuyResult {
     buyOutstandingBalance = newOutstandingBalance;
 
     const buyNetWorth = roundMoney(
-      buyPropertyValue.minus(buyOutstandingBalance).plus(buyInvestedCapital),
+      buyPropertyValue
+        .times(ONE.minus(saleCostPct))
+        .minus(buyOutstandingBalance)
+        .plus(buyInvested),
     );
-    const rentNetWorth = roundMoney(rentInvestedCapital);
+    const rentNetWorth = roundMoney(rentInvested);
 
     buyTimeline.push({
       month: m,
       propertyValue: roundMoney(buyPropertyValue),
       outstandingBalance: roundMoney(buyOutstandingBalance),
-      investedCapital: roundMoney(buyInvestedCapital),
+      paidInstallment: roundMoney(installment),
+      monthlyOwnershipOutflow: roundMoney(buyOutflow),
+      investedDifference: roundMoney(buyInvested),
       netWorth: buyNetWorth,
     });
     rentTimeline.push({
       month: m,
-      rent: roundMoney(currentRent),
-      investedCapital: roundMoney(rentInvestedCapital),
+      rentPaid: roundMoney(currentRent),
       monthlyContribution: roundMoney(rentContribution),
+      investedCapital: roundMoney(rentInvested),
       netWorth: rentNetWorth,
     });
 
@@ -245,5 +314,110 @@ export function compareRentVsBuy(inputs: RentVsBuyInputs): RentVsBuyResult {
       netWorthDifferenceFinal,
       breakEvenMonth,
     },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Backwards-compatible MVP API: compareRentVsBuy
+// Delegates to simulateRentVsBuy with purchaseCostPct=0 and saleCostPct=0 so
+// existing callers (UI, charts, Excel) keep their semantics unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RentVsBuyInputs {
+  propertyValue: Decimal;
+  downPayment: Decimal;
+  monthlyRate: Decimal;
+  termMonths: number;
+  system?: AmortizationSystem;
+  monthlyRent: Decimal;
+  annualRentAdjustment: Decimal;
+  annualInvestmentReturn: Decimal;
+  annualAppreciation: Decimal;
+  monthlyOwnershipCosts: Decimal;
+  horizonMonths: number;
+}
+
+export interface BuyTimelineEntry {
+  month: number;
+  propertyValue: Decimal;
+  outstandingBalance: Decimal;
+  investedCapital: Decimal;
+  netWorth: Decimal;
+}
+
+export interface RentTimelineEntry {
+  month: number;
+  rent: Decimal;
+  investedCapital: Decimal;
+  monthlyContribution: Decimal;
+  netWorth: Decimal;
+}
+
+export interface RentVsBuySummary {
+  bestScenario: Scenario;
+  netWorthDifferenceFinal: Decimal;
+  breakEvenMonth: number | null;
+}
+
+export interface RentVsBuyResult {
+  buyTimeline: BuyTimelineEntry[];
+  rentTimeline: RentTimelineEntry[];
+  summary: RentVsBuySummary;
+}
+
+/**
+ * @deprecated Prefer {@link simulateRentVsBuy}. This wrapper preserves the MVP
+ * shape (monthlyRate input, no purchase/sale costs) by delegating to the new
+ * engine with `purchaseCostPct=0` and `saleCostPct=0`. The legacy timeline
+ * fields are mapped from the new engine's outputs.
+ */
+export function compareRentVsBuy(inputs: RentVsBuyInputs): RentVsBuyResult {
+  // Validate the MVP-shape inputs that don't survive the conversion to the
+  // new engine's input shape (so error messages keep the legacy field names).
+  if (inputs.monthlyRate.isNegative()) {
+    throw new Error("monthlyRate must be non-negative");
+  }
+  const annualRate = monthlyToAnnualRate(inputs.monthlyRate);
+  const simResult = simulateRentVsBuy({
+    propertyValue: inputs.propertyValue,
+    downPayment: inputs.downPayment,
+    termMonths: inputs.termMonths,
+    annualRate,
+    monthlyRent: inputs.monthlyRent,
+    annualRentAdjustment: inputs.annualRentAdjustment,
+    annualPropertyAppreciation: inputs.annualAppreciation,
+    annualInvestmentReturn: inputs.annualInvestmentReturn,
+    horizonMonths: inputs.horizonMonths,
+    system: inputs.system,
+    monthlyOwnershipCosts: inputs.monthlyOwnershipCosts,
+    purchaseCostPct: ZERO,
+    saleCostPct: ZERO,
+  });
+
+  const buyTimeline: BuyTimelineEntry[] = simResult.buyTimeline.map((b) => ({
+    month: b.month,
+    propertyValue: b.propertyValue,
+    outstandingBalance: b.outstandingBalance,
+    investedCapital: b.investedDifference,
+    netWorth: b.netWorth,
+  }));
+
+  // Preserve MVP semantics: the legacy `rent` field at m=0 was the initial
+  // monthly rent (not zero), since it represented "rent that applies to this
+  // month" rather than "rent paid this month".
+  const rentTimeline: RentTimelineEntry[] = simResult.rentTimeline.map(
+    (r, idx) => ({
+      month: r.month,
+      rent: idx === 0 ? roundMoney(inputs.monthlyRent) : r.rentPaid,
+      investedCapital: r.investedCapital,
+      monthlyContribution: r.monthlyContribution,
+      netWorth: r.netWorth,
+    }),
+  );
+
+  return {
+    buyTimeline,
+    rentTimeline,
+    summary: simResult.summary,
   };
 }

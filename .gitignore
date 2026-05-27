@@ -39,3 +39,7 @@ coverage/
 
 # Bun
 bun.lockb
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars

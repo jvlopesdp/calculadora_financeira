@@ -8,6 +8,8 @@ import {
   type FinancingInputs,
   type ScheduleRow,
 } from "@/core/finance/financial-types";
+import { resolveExtraSchedule } from "@/core/finance/extra-schedule";
+import type { ExtraPaymentStrategy } from "@/features/simulator/hooks/simulation-context";
 import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
 
 export const INSTALLMENT_COMPOSITION_CHART_EMPTY_STATE =
@@ -37,11 +39,20 @@ function baseScheduleFor(inputs: FinancingInputs): ScheduleRow[] {
 
 export function prepareInstallmentCompositionData(
   financing: FinancingFormValues | null,
+  extraMonthly: number | null = null,
+  strategy: ExtraPaymentStrategy = "term",
 ): InstallmentCompositionChartPoint[] | null {
   if (!financing) return null;
   try {
     const inputs = buildFinancingInputs(financing);
-    const schedule = baseScheduleFor(inputs);
+    const hasExtra =
+      typeof extraMonthly === "number" &&
+      Number.isFinite(extraMonthly) &&
+      extraMonthly > 0;
+    const schedule = hasExtra
+      ? resolveExtraSchedule(inputs, new Decimal(extraMonthly), strategy)
+          .schedule
+      : baseScheduleFor(inputs);
     if (schedule.length === 0) return null;
     return schedule.map((row) => {
       const juros = row.interest.toNumber();

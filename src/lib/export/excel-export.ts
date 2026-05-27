@@ -7,18 +7,17 @@ import {
 import {
   type FinancingInputs,
   type ScheduleRow,
+  roundMoney,
   summarizeSchedule,
 } from "@/core/finance/financial-types";
-import {
-  applyPrepaymentReduceInstallment,
-  applyPrepaymentReduceTerm,
-  type PrepaymentResult,
-} from "@/core/finance/prepayment";
+import { resolveExtraSchedule } from "@/core/finance/extra-schedule";
+import type { PrepaymentResult } from "@/core/finance/prepayment";
+import { calculatePriceInstallment } from "@/core/finance/price-calculator";
 import {
   compareRentVsBuy,
-  type RentVsBuyInputs,
   type RentVsBuyResult,
 } from "@/core/finance/rent-vs-buy";
+import { buildRentVsBuyEngineInputs } from "@/features/simulator/lib/rent-vs-buy-engine";
 import type { ExtraPaymentStrategy } from "@/features/simulator/hooks/simulation-context";
 import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
 import type { RentVsBuyFormValues } from "@/features/simulator/schemas/rent-vs-buy";
@@ -38,14 +37,16 @@ type NumberCell = { v: number; t: "n"; z?: string };
 export type ExportCell = string | StringCell | NumberCell;
 
 // Sheet names truncated to fit Excel's 31-char ceiling — SheetJS throws on
-// any name longer than that, so the PRD's "Amortização Extra (...)" names
-// cannot be used verbatim. Kept short and clear instead.
+// any name longer than that, so the PRD's "Financiamento + Parcela Desejada
+// (Reduzir Prazo)" form cannot be used verbatim. Kept short and clear:
+// "Parcela Desejada (Prazo)" / "(Parcela)" — the strategy is implied because
+// "Reduzir" is the only operation, and the column headers spell it out anyway.
 export const SHEET_NAMES = [
   "Resumo",
   "Premissas",
   "Financiamento Base",
-  "Extra (Reduzir Prazo)",
-  "Extra (Reduzir Parcela)",
+  "Parcela Desejada (Prazo)",
+  "Parcela Desejada (Parcela)",
   "Aluguel vs Compra",
   "Tabela Comparativa",
 ] as const;
@@ -81,25 +82,6 @@ function buildFinancingInputs(values: FinancingFormValues): FinancingInputs {
   };
 }
 
-function buildRentVsBuyInputs(
-  financing: FinancingFormValues,
-  values: RentVsBuyFormValues,
-): RentVsBuyInputs {
-  return {
-    propertyValue: new Decimal(financing.propertyValue),
-    downPayment: new Decimal(financing.downPayment),
-    monthlyRate: new Decimal(financing.monthlyRate).div(100),
-    termMonths: financing.termMonths,
-    system: financing.system,
-    monthlyRent: new Decimal(values.monthlyRent),
-    annualRentAdjustment: new Decimal(values.annualRentAdjustment).div(100),
-    annualInvestmentReturn: new Decimal(values.annualInvestmentReturn).div(100),
-    annualAppreciation: new Decimal(values.annualAppreciation).div(100),
-    monthlyOwnershipCosts: new Decimal(values.monthlyOwnershipCosts),
-    horizonMonths: values.horizonMonths,
-  };
-}
-
 function baseScheduleOf(inputs: FinancingInputs): ScheduleRow[] {
   return inputs.system === "SAC"
     ? generateSacSchedule(inputs)
@@ -117,18 +99,31 @@ function computeExtra(
 ): ExtraResults {
   const extra = new Decimal(extraMonthly);
   return {
-    reduceTerm: applyPrepaymentReduceTerm(inputs, extra),
-    reduceInstallment: applyPrepaymentReduceInstallment(inputs, extra),
+    reduceTerm: resolveExtraSchedule(inputs, extra, "term"),
+    reduceInstallment: resolveExtraSchedule(inputs, extra, "installment"),
   };
 }
 
+function derivedTargetMonthlyPayment(
+  inputs: FinancingInputs,
+  extraMonthly: number,
+): Decimal {
+  const basePriceInstallment = roundMoney(
+    calculatePriceInstallment({
+      principal: inputs.principal,
+      monthlyRate: inputs.monthlyRate,
+      termMonths: inputs.termMonths,
+    }),
+  );
+  return roundMoney(basePriceInstallment.plus(extraMonthly));
+}
+
 function tryRentVsBuy(
-  financing: FinancingFormValues,
   rentVsBuy: RentVsBuyFormValues | null,
 ): RentVsBuyResult | null {
   if (!rentVsBuy) return null;
   try {
-    return compareRentVsBuy(buildRentVsBuyInputs(financing, rentVsBuy));
+    return compareRentVsBuy(buildRentVsBuyEngineInputs(rentVsBuy));
   } catch {
     return null;
   }
@@ -174,8 +169,10 @@ export function buildResumoSheet(payload: ExportPayload): ExportCell[][] {
     const extra = computeExtra(inputs, extraMonthly);
     const active =
       extraStrategy === "installment" ? extra.reduceInstallment : extra.reduceTerm;
+    const target = derivedTargetMonthlyPayment(inputs, extraMonthly);
     rows.push(
-      [txt("Pagamento extra mensal"), money(extraMonthly)],
+      [txt("Parcela mensal desejada"), money(target)],
+      [txt("Extra mensal derivado"), money(extraMonthly)],
       [txt("Estratégia ativa"), txt(strategyLabel(extraStrategy))],
       [txt("Total pago (com extra)"), money(active.summary.totalPaid)],
       [txt("Economia em juros"), money(active.summary.interestSaved)],
@@ -184,7 +181,7 @@ export function buildResumoSheet(payload: ExportPayload): ExportCell[][] {
     );
   }
 
-  const rvb = tryRentVsBuy(financing, rentVsBuy);
+  const rvb = tryRentVsBuy(rentVsBuy);
   if (rvb && rentVsBuy) {
     const finalBuy = rvb.buyTimeline[rvb.buyTimeline.length - 1];
     const finalRent = rvb.rentTimeline[rvb.rentTimeline.length - 1];
@@ -220,8 +217,11 @@ export function buildPremissasSheet(payload: ExportPayload): ExportCell[][] {
   ];
 
   if (extraMonthly !== null && extraMonthly > 0) {
+    const inputs = buildFinancingInputs(financing);
+    const target = derivedTargetMonthlyPayment(inputs, extraMonthly);
     rows.push(
-      [txt("Pagamento extra mensal"), money(extraMonthly)],
+      [txt("Parcela mensal desejada"), money(target)],
+      [txt("Extra mensal derivado"), money(extraMonthly)],
       [txt("Estratégia de pagamento extra"), txt(strategyLabel(extraStrategy))],
     );
   }
@@ -281,21 +281,22 @@ function buildPrepaymentScheduleSheet(
     return [
       [
         txt(
-          "Configure um pagamento extra mensal na simulação para gerar esta planilha.",
+          "Informe uma parcela mensal desejada na simulação para gerar esta planilha.",
         ),
       ],
     ];
   }
   const inputs = buildFinancingInputs(payload.financing);
   const extra = new Decimal(payload.extraMonthly);
-  const result =
-    strategy === "installment"
-      ? applyPrepaymentReduceInstallment(inputs, extra)
-      : applyPrepaymentReduceTerm(inputs, extra);
+  const result = resolveExtraSchedule(inputs, extra, strategy);
+  const target = derivedTargetMonthlyPayment(inputs, payload.extraMonthly);
+  const derivedExtra = new Decimal(payload.extraMonthly);
 
   const rows: ExportCell[][] = [
     [
       txt("Mês"),
+      txt("Parcela desejada"),
+      txt("Extra derivado"),
       txt("Parcela base"),
       txt("Pagamento extra"),
       txt("Pagamento total"),
@@ -307,6 +308,8 @@ function buildPrepaymentScheduleSheet(
   for (const row of result.schedule) {
     rows.push([
       integer(row.month),
+      money(target),
+      money(derivedExtra),
       money(row.baseInstallment),
       money(row.extraPayment),
       money(row.installment),
@@ -327,7 +330,7 @@ export function buildExtraInstallmentSheet(payload: ExportPayload): ExportCell[]
 }
 
 export function buildRentVsBuySheet(payload: ExportPayload): ExportCell[][] {
-  const rvb = tryRentVsBuy(payload.financing, payload.rentVsBuy);
+  const rvb = tryRentVsBuy(payload.rentVsBuy);
   if (!rvb) {
     return [
       [
@@ -337,18 +340,75 @@ export function buildRentVsBuySheet(payload: ExportPayload): ExportCell[][] {
       ],
     ];
   }
+
+  const finalBuy = rvb.buyTimeline[rvb.buyTimeline.length - 1];
+  const finalRent = rvb.rentTimeline[rvb.rentTimeline.length - 1];
+  const diffPctFraction = finalRent.netWorth.isZero()
+    ? null
+    : finalBuy.netWorth
+        .minus(finalRent.netWorth)
+        .div(finalRent.netWorth.abs());
+
   const rows: ExportCell[][] = [
+    [txt("Resumo aluguel vs. compra")],
+    [txt("Métrica"), txt("Valor")],
+    [txt("Vencedor"), txt(scenarioLabel(rvb.summary.bestScenario))],
+    [txt("Patrimônio final (comprar)"), money(finalBuy.netWorth)],
+    [txt("Patrimônio final (alugar + investir)"), money(finalRent.netWorth)],
+    [txt("Diferença (R$)"), money(rvb.summary.netWorthDifferenceFinal)],
     [
+      txt("Diferença (%)"),
+      diffPctFraction === null ? txt("—") : percent(diffPctFraction),
+    ],
+    [
+      txt("Mês de break-even"),
+      rvb.summary.breakEvenMonth === null
+        ? txt("Não atinge")
+        : integer(rvb.summary.breakEvenMonth),
+    ],
+    [],
+    [txt("Resumo anual")],
+    [
+      txt("Ano"),
       txt("Mês"),
-      txt("Aluguel"),
       txt("Patrimônio (comprar)"),
-      txt("Valor do imóvel"),
-      txt("Saldo devedor"),
-      txt("Capital investido (comprar)"),
       txt("Patrimônio (alugar)"),
-      txt("Diferença (comprar − alugar)"),
+      txt("Diferença"),
     ],
   ];
+
+  const horizonMonths = rvb.buyTimeline.length - 1;
+  const annualMonths: number[] = [];
+  for (let m = 12; m <= horizonMonths; m += 12) annualMonths.push(m);
+  if (
+    annualMonths.length === 0 ||
+    annualMonths[annualMonths.length - 1] !== horizonMonths
+  ) {
+    annualMonths.push(horizonMonths);
+  }
+  for (const m of annualMonths) {
+    const buy = rvb.buyTimeline[m];
+    const rent = rvb.rentTimeline[m];
+    rows.push([
+      integer(Math.ceil(m / 12)),
+      integer(m),
+      money(buy.netWorth),
+      money(rent.netWorth),
+      money(buy.netWorth.minus(rent.netWorth)),
+    ]);
+  }
+
+  rows.push([], [txt("Detalhamento mensal")]);
+  rows.push([
+    txt("Mês"),
+    txt("Aluguel"),
+    txt("Patrimônio (comprar)"),
+    txt("Valor do imóvel"),
+    txt("Saldo devedor"),
+    txt("Capital investido (comprar)"),
+    txt("Patrimônio (alugar)"),
+    txt("Diferença (comprar − alugar)"),
+  ]);
   const horizon = rvb.buyTimeline.length;
   for (let i = 0; i < horizon; i++) {
     const buy = rvb.buyTimeline[i];

@@ -8,11 +8,8 @@ import {
   type FinancingInputs,
   type ScheduleRow,
 } from "@/core/finance/financial-types";
-import {
-  applyPrepaymentReduceInstallment,
-  applyPrepaymentReduceTerm,
-  type PrepaymentScheduleRow,
-} from "@/core/finance/prepayment";
+import { resolveExtraSchedule } from "@/core/finance/extra-schedule";
+import type { PrepaymentScheduleRow } from "@/core/finance/prepayment";
 import type { ExtraPaymentStrategy } from "@/features/simulator/hooks/simulation-context";
 import type { FinancingFormValues } from "@/features/simulator/schemas/financing";
 
@@ -46,9 +43,7 @@ function extraScheduleFor(
   strategy: ExtraPaymentStrategy,
   extra: Decimal,
 ): PrepaymentScheduleRow[] {
-  return strategy === "term"
-    ? applyPrepaymentReduceTerm(inputs, extra).schedule
-    : applyPrepaymentReduceInstallment(inputs, extra).schedule;
+  return resolveExtraSchedule(inputs, extra, strategy).schedule;
 }
 
 export function prepareOutstandingBalanceData(

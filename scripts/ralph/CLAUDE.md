@@ -83,6 +83,10 @@ Only update CLAUDE.md if you have **genuinely reusable knowledge** that would he
 - Keep changes focused and minimal
 - Follow existing code patterns
 
+### Running tests
+
+ALWAYS run `bun run test` (and any other vitest invocation) in **foreground** — never with `run_in_background`. The background-task wrapper has a known bug where it loses the `.done` sentinel for long-running vitest processes, which hangs Ralph indefinitely. Other long commands (vite dev, watchers, builds) may use background freely.
+
 ## Browser Testing (If Available)
 
 For any story that changes UI, verify it works in the browser if you have browser testing tools configured (e.g., via MCP):

@@ -29,10 +29,16 @@ const baseFinancing: ExportPayload["financing"] = {
 };
 
 const baseRentVsBuy: ExportPayload["rentVsBuy"] = {
+  propertyValue: 500_000,
+  downPayment: 100_000,
+  termMonths: 360,
+  annualRate: 12,
   monthlyRent: 2500,
   annualRentAdjustment: 5,
   annualInvestmentReturn: 10,
   annualAppreciation: 6,
+  purchaseCostPct: 3,
+  saleCostPct: 6,
   monthlyOwnershipCosts: 500,
   horizonMonths: 120,
 };
@@ -93,13 +99,49 @@ describe("buildResumoSheet", () => {
 
   it("adds extra-payment rows only when extraMonthly > 0", () => {
     const labelsNoExtra = firstColumn(buildResumoSheet(payload()));
-    expect(labelsNoExtra).not.toContain("Pagamento extra mensal");
+    expect(labelsNoExtra).not.toContain("Parcela mensal desejada");
+    expect(labelsNoExtra).not.toContain("Extra mensal derivado");
 
     const labelsWithExtra = firstColumn(
       buildResumoSheet(payload({ extraMonthly: 1000, extraStrategy: "term" })),
     );
-    expect(labelsWithExtra).toContain("Pagamento extra mensal");
+    expect(labelsWithExtra).toContain("Parcela mensal desejada");
+    expect(labelsWithExtra).toContain("Extra mensal derivado");
     expect(labelsWithExtra).toContain("Economia em juros");
+  });
+
+  it("reports the derived target monthly payment as base PRICE installment + extra", () => {
+    const rows = buildResumoSheet(
+      payload({ extraMonthly: 1000, extraStrategy: "term" }),
+    );
+    const targetRow = rows.find(
+      (r) => isStringCell(r[0]) && r[0].v === "Parcela mensal desejada",
+    );
+    expect(targetRow).toBeDefined();
+    const targetCell = targetRow?.[1];
+    expect(isNumberCell(targetCell!)).toBe(true);
+    if (!isNumberCell(targetCell!)) throw new Error("expected number");
+
+    const engineSchedule = generatePriceSchedule({
+      principal: new Decimal(400_000),
+      monthlyRate: new Decimal("0.01"),
+      termMonths: 360,
+    });
+    const expected = engineSchedule[0].installment
+      .toDecimalPlaces(2)
+      .plus(1000)
+      .toDecimalPlaces(2)
+      .toNumber();
+    expect(targetCell.v).toBeCloseTo(expected, 2);
+    expect(targetCell.z).toBe(CURRENCY_FORMAT);
+
+    const derivedExtraRow = rows.find(
+      (r) => isStringCell(r[0]) && r[0].v === "Extra mensal derivado",
+    );
+    const derivedExtraCell = derivedExtraRow?.[1];
+    expect(isNumberCell(derivedExtraCell!)).toBe(true);
+    if (!isNumberCell(derivedExtraCell!)) throw new Error("expected number");
+    expect(derivedExtraCell.v).toBe(1000);
   });
 
   it("adds rent-vs-buy rows when rentVsBuy state is present", () => {
@@ -132,6 +174,17 @@ describe("buildPremissasSheet", () => {
     expect(labels).toContain("Aluguel mensal");
     expect(labels).toContain("Horizonte (meses)");
     expect(labels).toContain("Rendimento anual do investimento");
+  });
+
+  it("adds target-payment rows when extraMonthly > 0", () => {
+    const labels = firstColumn(
+      buildPremissasSheet(
+        payload({ extraMonthly: 1000, extraStrategy: "term" }),
+      ),
+    );
+    expect(labels).toContain("Parcela mensal desejada");
+    expect(labels).toContain("Extra mensal derivado");
+    expect(labels).toContain("Estratégia de pagamento extra");
   });
 });
 
@@ -167,32 +220,68 @@ describe("buildExtraTermSheet", () => {
     const rows = buildExtraTermSheet(payload());
     expect(rows.length).toBe(1);
     expect(isStringCell(rows[0][0]) && rows[0][0].v).toMatch(
-      /configure um pagamento extra/i,
+      /informe uma parcela mensal desejada/i,
     );
   });
 
-  it("emits header + schedule when extraMonthly > 0", () => {
+  it("emits header + schedule with the parcela desejada + extra derivado columns", () => {
     const rows = buildExtraTermSheet(
       payload({ extraMonthly: 1000, extraStrategy: "term" }),
     );
-    expect(rows[0]).toHaveLength(7);
-    expect(isStringCell(rows[0][2]) && rows[0][2].v).toBe("Pagamento extra");
+    expect(rows[0]).toHaveLength(9);
+    expect(isStringCell(rows[0][1]) && rows[0][1].v).toBe("Parcela desejada");
+    expect(isStringCell(rows[0][2]) && rows[0][2].v).toBe("Extra derivado");
+    expect(isStringCell(rows[0][3]) && rows[0][3].v).toBe("Parcela base");
+    expect(isStringCell(rows[0][4]) && rows[0][4].v).toBe("Pagamento extra");
     expect(rows.length).toBeGreaterThan(2);
 
     const firstData = rows[1];
+    const engineSchedule = generatePriceSchedule({
+      principal: new Decimal(400_000),
+      monthlyRate: new Decimal("0.01"),
+      termMonths: 360,
+    });
+    const expectedTarget = engineSchedule[0].installment
+      .toDecimalPlaces(2)
+      .plus(1000)
+      .toDecimalPlaces(2)
+      .toNumber();
+    expect(isNumberCell(firstData[1]) && firstData[1].v).toBeCloseTo(
+      expectedTarget,
+      2,
+    );
     expect(isNumberCell(firstData[2]) && firstData[2].v).toBe(1000);
+    expect(isNumberCell(firstData[4]) && firstData[4].v).toBe(1000);
+  });
+
+  it("keeps the parcela desejada column constant across all rows", () => {
+    const rows = buildExtraTermSheet(
+      payload({ extraMonthly: 1000, extraStrategy: "term" }),
+    );
+    const firstTarget = isNumberCell(rows[1][1]) ? rows[1][1].v : null;
+    expect(firstTarget).not.toBeNull();
+    for (let i = 1; i < rows.length; i++) {
+      const cell = rows[i][1];
+      expect(isNumberCell(cell)).toBe(true);
+      if (isNumberCell(cell)) {
+        expect(cell.v).toBe(firstTarget);
+      }
+    }
   });
 });
 
 describe("buildExtraInstallmentSheet", () => {
-  it("emits the recomputed installments + extra column", () => {
+  it("emits the recomputed installments with parcela desejada + extra derivado columns", () => {
     const rows = buildExtraInstallmentSheet(
       payload({ extraMonthly: 1500, extraStrategy: "installment" }),
     );
-    expect(rows[0]).toHaveLength(7);
+    expect(rows[0]).toHaveLength(9);
+    expect(isStringCell(rows[0][1]) && rows[0][1].v).toBe("Parcela desejada");
+    expect(isStringCell(rows[0][2]) && rows[0][2].v).toBe("Extra derivado");
     expect(rows.length).toBeGreaterThan(2);
     const firstData = rows[1];
     expect(isNumberCell(firstData[2]) && firstData[2].v).toBe(1500);
+    expect(isNumberCell(firstData[4]) && firstData[4].v).toBe(1500);
   });
 });
 
@@ -205,11 +294,50 @@ describe("buildRentVsBuySheet", () => {
     );
   });
 
-  it("emits horizon+1 rows when rentVsBuy is configured", () => {
+  it("emits a summary block, an annual block and the monthly detail when rentVsBuy is configured", () => {
     const rows = buildRentVsBuySheet(payload({ rentVsBuy: baseRentVsBuy }));
-    // 1 header + (horizonMonths + 1) data rows (timeline includes m=0)
-    expect(rows.length).toBe(1 + baseRentVsBuy.horizonMonths + 1);
-    expect(isStringCell(rows[0][0]) && rows[0][0].v).toBe("Mês");
+    expect(isStringCell(rows[0][0]) && rows[0][0].v).toBe(
+      "Resumo aluguel vs. compra",
+    );
+    const labels = firstColumn(rows);
+    expect(labels).toContain("Vencedor");
+    expect(labels).toContain("Patrimônio final (comprar)");
+    expect(labels).toContain("Patrimônio final (alugar + investir)");
+    expect(labels).toContain("Diferença (R$)");
+    expect(labels).toContain("Diferença (%)");
+    expect(labels).toContain("Mês de break-even");
+    expect(labels).toContain("Resumo anual");
+    expect(labels).toContain("Detalhamento mensal");
+
+    // Annual block has one row per completed year of the horizon (120 → 10).
+    const annualHeaderIdx = rows.findIndex(
+      (r) => isStringCell(r[0]) && r[0].v === "Ano",
+    );
+    expect(annualHeaderIdx).toBeGreaterThan(0);
+    // First annual data row should be year 1 / month 12.
+    const firstAnnual = rows[annualHeaderIdx + 1];
+    expect(isNumberCell(firstAnnual[0]) && firstAnnual[0].v).toBe(1);
+    expect(isNumberCell(firstAnnual[1]) && firstAnnual[1].v).toBe(12);
+
+    // Diferença (%) cell uses the percent format (or a dash if rent is zero).
+    const diffPctRow = rows.find(
+      (r) => isStringCell(r[0]) && r[0].v === "Diferença (%)",
+    );
+    expect(diffPctRow).toBeDefined();
+    const diffPctCell = diffPctRow![1];
+    if (isNumberCell(diffPctCell)) {
+      expect(diffPctCell.z).toBe(PERCENT_FORMAT);
+    } else {
+      expect(isStringCell(diffPctCell) && diffPctCell.v).toBe("—");
+    }
+
+    // Monthly detail still emits the per-month rows after its header.
+    const monthlyHeaderIdx = rows.findIndex(
+      (r) => isStringCell(r[0]) && r[0].v === "Mês",
+    );
+    expect(monthlyHeaderIdx).toBeGreaterThan(annualHeaderIdx);
+    const monthlyRowCount = rows.length - monthlyHeaderIdx - 1;
+    expect(monthlyRowCount).toBe(baseRentVsBuy.horizonMonths + 1);
   });
 });
 
@@ -260,8 +388,8 @@ describe("SHEET_NAMES", () => {
       "Resumo",
       "Premissas",
       "Financiamento Base",
-      "Extra (Reduzir Prazo)",
-      "Extra (Reduzir Parcela)",
+      "Parcela Desejada (Prazo)",
+      "Parcela Desejada (Parcela)",
       "Aluguel vs Compra",
       "Tabela Comparativa",
     ]);
@@ -338,8 +466,8 @@ describe("exportSimulation", () => {
       "Resumo",
       "Premissas",
       "Financiamento Base",
-      "Extra (Reduzir Prazo)",
-      "Extra (Reduzir Parcela)",
+      "Parcela Desejada (Prazo)",
+      "Parcela Desejada (Parcela)",
       "Aluguel vs Compra",
       "Tabela Comparativa",
     ]);
