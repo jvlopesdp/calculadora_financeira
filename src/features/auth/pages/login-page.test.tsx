@@ -29,7 +29,7 @@ vi.mock("@/features/auth/components/turnstile-field", () => ({
   },
 }));
 
-function renderLogin(initialEntries: Array<string | { pathname: string; state: unknown }> = ["/login"]) {
+function renderLogin(initialEntries: string[] = ["/login"]) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <Routes>
@@ -104,7 +104,7 @@ describe("LoginPage", () => {
     expect(signInEmailMock).not.toHaveBeenCalled();
   });
 
-  it("submits sign-in payload with the turnstile token and navigates to /financiamento on success", async () => {
+  it("submits sign-in payload with the turnstile token and navigates to /historico by default on success", async () => {
     signInEmailMock.mockResolvedValueOnce({ data: {}, error: null });
     renderLogin();
     fireEvent.click(screen.getByTestId("turnstile-stub"));
@@ -116,17 +116,15 @@ describe("LoginPage", () => {
     expect(signInEmailMock).toHaveBeenCalledWith({
       email: "joao@exemplo.com",
       password: "senha-segura-123",
-      callbackURL: "/financiamento",
+      callbackURL: "/historico",
       fetchOptions: { body: { turnstileToken: "ts-token-abc" } },
     });
-    expect(
-      await screen.findByText(/financiamento page/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/historico page/i)).toBeInTheDocument();
   });
 
-  it("honours the original destination passed via location.state.from after successful login", async () => {
+  it("honours the ?next= destination after successful login", async () => {
     signInEmailMock.mockResolvedValueOnce({ data: {}, error: null });
-    renderLogin([{ pathname: "/login", state: { from: "/historico" } }]);
+    renderLogin(["/login?next=%2Ffinanciamento"]);
     fireEvent.click(screen.getByTestId("turnstile-stub"));
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: /^entrar$/i }));
@@ -134,9 +132,9 @@ describe("LoginPage", () => {
       expect(signInEmailMock).toHaveBeenCalledTimes(1);
     });
     expect(signInEmailMock).toHaveBeenCalledWith(
-      expect.objectContaining({ callbackURL: "/historico" }),
+      expect.objectContaining({ callbackURL: "/financiamento" }),
     );
-    expect(await screen.findByText(/historico page/i)).toBeInTheDocument();
+    expect(await screen.findByText(/financiamento page/i)).toBeInTheDocument();
   });
 
   it("shows pt-BR error when credentials are invalid", async () => {

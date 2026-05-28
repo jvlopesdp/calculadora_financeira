@@ -1,12 +1,7 @@
 import { useCallback, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Link,
-  useLocation,
-  useNavigate,
-  useSearchParams,
-} from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -80,22 +75,19 @@ function classifySignInError(
   };
 }
 
-function isLocationStateWithFrom(value: unknown): value is { from?: unknown } {
-  return typeof value === "object" && value !== null;
-}
-
-function resolveRedirectTarget(state: unknown): string {
-  if (!isLocationStateWithFrom(state)) return "/financiamento";
-  const from = state.from;
-  if (typeof from === "string" && from.startsWith("/") && !from.startsWith("//")) {
-    return from;
+function resolveRedirectTarget(next: string | null): string {
+  if (
+    typeof next === "string" &&
+    next.startsWith("/") &&
+    !next.startsWith("//")
+  ) {
+    return next;
   }
-  return "/financiamento";
+  return "/historico";
 }
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [searchParams] = useSearchParams();
   const flashMessage = searchParams.get("flash");
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
@@ -121,7 +113,7 @@ export function LoginPage() {
     setTurnstileToken(null);
   }, []);
 
-  const redirectTarget = resolveRedirectTarget(location.state);
+  const redirectTarget = resolveRedirectTarget(searchParams.get("next"));
 
   const onSubmit = form.handleSubmit(async (values) => {
     setErrorKind(null);

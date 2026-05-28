@@ -88,3 +88,23 @@ Started: Wed May 27 19:10:33 PDT 2026
   - O contrato do `useSession()` é `{ user, session, isPending, isError }` (não `{ data, isLoading }`). Mocks nos testes devem devolver esse shape achatado, não o `UseQueryResult` cru do TanStack.
   - `getSession()` chama `GET /api/auth/get-session` do Better Auth, que responde `200` com `null` quando não há cookie de sessão — por isso o tipo é `SessionResponse | null` e o hook normaliza para anônimo.
 ---
+
+## 2026-05-27 - US-004 — ProtectedRoute reativo com redirect /login?next=…
+- Implemented:
+  - `src/app/protected-route.tsx`: o redirect anônimo passou de `<Navigate to="/login" state={{ from }}/>` para `<Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />`. O loader `role="status"` "Carregando…" durante `isPending` permanece (já existia desde US-003). `/` continua redirecionando para `/financiamento` (público) — a raiz NÃO está sob `<ProtectedRoute/>` em routes.tsx; só `/historico` e `/historico/:scenarioId` estão.
+  - `src/features/auth/pages/login-page.tsx`: `resolveRedirectTarget` agora lê o querystring `?next=` (via `searchParams.get("next")`) em vez de `location.state.from`; mantém a guarda anti-open-redirect (`startsWith("/") && !startsWith("//")`); o **fallback mudou de `/financiamento` para `/historico`** (exigência do AC). Removidos o `useLocation` e o helper `isLocationStateWithFrom` (não usados mais).
+  - `src/app/protected-route.test.tsx` (novo): mocka `@/lib/queries/session` (`useSession`), cobre os 3 casos — loading (loader, sem filho), sem-user (Navigate→`/login` com `?next=` carregando pathname+search, ex.: `/historico/42?tab=pagamentos`), com-user (renderiza o filho). Usa um `LoginStub` que lê `useSearchParams().get("next")` num `data-testid="login-next"`.
+  - `src/features/auth/pages/login-page.test.tsx`: dois testes atualizados — o caso default agora espera `callbackURL: "/historico"` (novo fallback) e o caso "honours destination" virou "honours the ?next= destination" usando `renderLogin(["/login?next=%2Ffinanciamento"])`. Tipo de `renderLogin` simplificado para `string[]` (a forma `{ pathname, state }` não é mais usada).
+- Files changed:
+  - src/app/protected-route.tsx
+  - src/app/protected-route.test.tsx (new)
+  - src/features/auth/pages/login-page.tsx
+  - src/features/auth/pages/login-page.test.tsx
+- Quality: `bun run typecheck` ok, `bun run lint` ok (só o warning pré-existente em site-header.tsx), `bun run test` 598 testes em 58 arquivos — todos passam.
+- Browser: nenhuma ferramenta de browser (MCP/dev-browser) disponível neste ambiente — **verificação manual no browser ainda é necessária** para o critério "Verify in browser".
+- **Learnings for future iterations:**
+  - O contrato de redirect pós-login deste app agora é `?next=<path+search>` no querystring (NÃO mais `location.state.from`). `ProtectedRoute` produz; `LoginPage` consome via `searchParams.get("next")`. Fallback quando não há `?next=` é `/historico`. Futuras rotas protegidas (ex.: `/acompanhamento/*` na US-015+) ganham esse comportamento de graça só por estarem sob `<ProtectedRoute/>`.
+  - Guarda anti-open-redirect: sempre validar `next.startsWith("/") && !next.startsWith("//")` antes de navegar para um destino vindo da URL — bloqueia `//evil.com` e URLs absolutas.
+  - `useSearchParams().get("next")` já devolve o valor DECODIFICADO; o `encodeURIComponent` no `ProtectedRoute` e o decode do react-router se cancelam — não decodifique de novo manualmente.
+  - O botão "Entrar" do `NavUser` navega para `/login` sem `?next=` (clique manual) — cai no fallback `/historico`, o que é o comportamento desejado.
+---
