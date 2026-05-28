@@ -48,6 +48,7 @@ function renderPage() {
 
 describe("Financiamento page", () => {
   beforeEach(() => {
+    localStorage.clear();
     stubMatchMedia(false);
     document.documentElement.classList.remove("dark");
   });

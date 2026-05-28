@@ -1,9 +1,24 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FinancingForm } from "@/features/simulator/components/financing-form";
 import { SimulationProvider } from "@/features/simulator/hooks/simulation-provider";
 import { useSimulation } from "@/features/simulator/hooks/simulation-context";
+
+// FinancingForm now consumes useSimulatorDraft (session + draft TanStack hooks).
+// Mock the query layer so these tests stay anonymous and avoid network/QueryClient.
+vi.mock("@/lib/queries/session", () => ({
+  useSession: () => ({
+    user: null,
+    session: null,
+    isPending: false,
+    isError: false,
+  }),
+}));
+vi.mock("@/lib/queries/draft", () => ({
+  useDraftQuery: () => ({ data: undefined, isSuccess: false }),
+  useSaveDraft: () => ({ mutate: vi.fn() }),
+}));
 
 function FinancingFingerprint() {
   const { financing } = useSimulation();
@@ -24,6 +39,10 @@ function renderForm() {
 }
 
 describe("FinancingForm", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it("renders all required pt-BR labels", () => {
     renderForm();
     expect(screen.getByLabelText("Valor do imóvel")).toBeInTheDocument();

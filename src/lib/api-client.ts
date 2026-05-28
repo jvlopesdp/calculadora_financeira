@@ -214,3 +214,26 @@ export async function getSession(): Promise<SessionResponse | null> {
 export async function signOutRequest(): Promise<void> {
   await jsonFetch<unknown>("/api/auth/sign-out", { method: "POST" });
 }
+
+export interface DraftResponse {
+  /** Opaque to the API; the simulator owns the shape. `null` when no draft. */
+  draft: unknown;
+}
+
+/** Reads the authenticated user's single saved simulator draft. */
+export async function getDraft(): Promise<DraftResponse> {
+  return jsonFetch<DraftResponse>("/api/scenarios/draft");
+}
+
+/** Upserts the authenticated user's simulator draft (opaque JSON object). */
+export async function putDraft(
+  payload: object,
+): Promise<{ draft: unknown; updated_at: number }> {
+  return jsonFetch<{ draft: unknown; updated_at: number }>(
+    "/api/scenarios/draft",
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+  );
+}

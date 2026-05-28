@@ -19,6 +19,8 @@ Started: Wed May 27 19:10:33 PDT 2026
 - D1 upsert pattern (SQLite): `insert into "t" (...) values (?,?) on conflict("pk_col") do update set "c" = excluded."c"`. Use this for one-row-per-user / one-per-key tables.
 - Server route ordering GOTCHA: in a Hono sub-app, register STATIC paths (e.g. `get("/draft")`) BEFORE param paths (`get("/:id")`) so the static path wins. Sub-apps mounted in `src/server/index.ts` that bring their own `requireUser` must be mounted BEFORE the generic `app.use("/api/*", requireUser)`; more specific mount paths (e.g. `/api/scenarios/:scenarioId/payments`) go before less specific (`/api/scenarios`).
 - Server test FakeD1 (`src/server/routes/*.test.ts`): a hand-rolled in-memory D1 stub whose `prepare(sql)` dispatches on `sql.startsWith(...)` and THROWS on unrecognised SQL — so any new query needs a matching branch in `run()`/`first()`/`all()`, or the test fails loudly. `buildApp(userId)` mocks `createAuth` to return a fake session; the 401 path mocks `getSession: async () => null`.
+- PROVIDER ORDERING GOTCHA: `SimulationProvider` is mounted in `src/main.tsx` ABOVE `<App/>`, and `App.tsx` is where `<QueryClientProvider>` lives. So `SimulationProvider` sits ABOVE the QueryClient and CANNOT use TanStack hooks (`useSession`/`useQuery`). Any simulator code that needs server-state must run in a component BELOW the routes (e.g. inside `FinancingForm`, which is rendered by `FinanciamentoPage`), not in the provider. This is why `useSimulatorDraft` lives in the form, not the provider.
+- Simulator draft autosave: `src/features/simulator/lib/simulator-draft.ts` owns the `FinancingDraft` type + localStorage helpers (key `sim-draft-v1`). `useSimulatorDraft()` (in `src/features/simulator/hooks/`) restores (localStorage sync first render; D1 `GET /api/scenarios/draft` preferred once it resolves for logged-in users, guarded so a late query never overwrites typed input) and debounce-saves (localStorage always + D1 PUT when logged in). The draft payload is the RAW financing form input (partial/invalid OK), not validated `FinancingFormValues`.
 ---
 
 ## 2026-05-27 - US-001 — TanStack Query + persister
@@ -177,4 +179,30 @@ Started: Wed May 27 19:10:33 PDT 2026
   - Adicionar rotas a um router existente não exige mudança no `index.ts` se o mount path não muda — `/draft` virou `/api/scenarios/draft` de graça. `/api/scenarios/draft` NÃO é capturado pelo payments router (mount `/api/scenarios/:scenarioId/payments` exige sufixo `/payments`).
   - Ao adicionar SQL novo num route handler, lembre de adicionar o branch correspondente no FakeD1 do `.test.ts` — ele THROWA em SQL não reconhecido (falha alto), então é impossível esquecer se houver teste cobrindo a rota.
   - US-008 (autosave do simulador) consome estes endpoints: GET devolve `{ draft: <objeto> | null }`, PUT recebe o objeto do rascunho direto no body (não embrulhado em `{ payload }`).
+---
+
+## 2026-05-27 - US-008 — Autosave do rascunho do Simulador (localStorage + D1) com restore no boot
+- Implemented:
+  - `src/features/simulator/lib/simulator-draft.ts` (novo): tipo `FinancingDraft` (shape RAW do form, nulláveis), `SIM_DRAFT_KEY = 'sim-draft-v1'`, `EMPTY_FINANCING_DRAFT`, e helpers puros `parseFinancingDraft` (coerção + retorna null p/ draft vazio), `readLocalDraft`/`writeLocalDraft` (try/catch p/ storage indisponível), `isEmptyFinancingDraft`.
+  - `src/lib/api-client.ts`: `getDraft()` (GET /api/scenarios/draft → `{ draft }`) e `putDraft(payload: object)` (PUT, body = objeto cru). Tipo `DraftResponse`.
+  - `src/lib/queries/draft.ts` (novo): `DRAFT_QUERY_KEY = ['draft']`, `useDraftQuery({ enabled })` (gate por login) e `useSaveDraft()` (mutation). useSaveDraft NÃO invalida ['draft'] de propósito (refetch de autosave clobaria o input em edição) — comentado no código.
+  - `src/features/simulator/hooks/use-simulator-draft.ts` (novo): orquestra restore + save. `initialFinancing` via `useState(() => readLocalDraft())` (sync, 1º render). Quando logado, `useDraftQuery` resolve → aplica D1 UMA vez via `restoredFinancing`+`restoreToken`, mas só se `hasUserEditedRef` for false (AC: query atrasada não apaga input). `reportInput(draft)` marca editado + debounce 500ms → writeLocalDraft sempre + `useSaveDraft().mutate` quando logado. Cleanup limpa o timeout no unmount.
+  - `src/features/simulator/components/financing-form.tsx`: integra `useSimulatorDraft()`. `defaultValues = initialFinancing ?? EMPTY_FINANCING_DRAFT` (campos refletem o draft no 1º render p/ deslogado). Effect reseta o form quando chega `restoreToken`>0 (D1 tardio). Effect de autosave converte `useWatch` → `FinancingDraft` e chama `reportInput`, pulando a 1ª emissão (mount) e a emissão pós-`reset()` (via `skipReportRef`) e deduplicando por JSON serializado p/ não resetar o debounce em re-renders sem mudança de valor. `FormShape` virou alias de `FinancingDraft`.
+- Files changed:
+  - src/features/simulator/lib/simulator-draft.ts (new)
+  - src/lib/api-client.ts
+  - src/lib/queries/draft.ts (new)
+  - src/features/simulator/hooks/use-simulator-draft.ts (new)
+  - src/features/simulator/hooks/use-simulator-draft.test.tsx (new)
+  - src/features/simulator/components/financing-form.tsx
+  - src/features/simulator/components/financing-form.test.tsx (mocka @/lib/queries/session + draft; localStorage.clear no beforeEach)
+  - src/features/simulator/pages/financiamento-page.test.tsx (localStorage.clear no beforeEach)
+  - scripts/ralph/prd.json (US-008 passes:true)
+- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (hook + financing-form + financiamento-page) 21/21; `bun run test` 621 testes em 60 arquivos TODOS passam (exit 1 apenas pelo KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionado).
+- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (preencher form, dar refresh deslogado → campos voltam; logado → D1 vence o localStorage no boot).
+- **Learnings for future iterations:**
+  - PROVIDER ORDERING: `SimulationProvider` (main.tsx) está ACIMA do `QueryClientProvider` (App.tsx). Não dá pra usar TanStack no provider — coloquei o hook de draft no `FinancingForm` (abaixo das rotas). Ver pattern no topo.
+  - Para um effect que reage a `useWatch` (que retorna objeto novo a cada render) sem disparar saves espúrios: compare o draft SERIALIZADO ao último (ref) e pule a 1ª emissão de mount + a emissão causada por `reset()`. Sem isso, o debounce reseta a cada re-render e o save nunca dispara.
+  - Testar TanStack + debounce: use `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync()` (flusha microtasks/promises do fetch entre timers). Para o caso logado, `vi.runOnlyPendingTimersAsync()` após o mount flusha o GET /draft. Mocke `@/lib/queries/session` (sessionState mutável entre testes) e `vi.stubGlobal('fetch', ...)` retornando um Response-like (`{ ok, status, statusText, json }`).
+  - `putDraft(payload: object)` evita o erro "index signature is missing" ao passar um tipo concreto onde se esperaria `Record<string, unknown>` — `object` aceita qualquer FinancingDraft sem cast e mantém api-client desacoplado de tipos de feature.
 ---
