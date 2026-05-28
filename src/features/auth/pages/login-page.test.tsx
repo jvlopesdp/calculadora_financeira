@@ -5,11 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoginPage } from "@/features/auth/pages/login-page";
 
 const signInEmailMock = vi.fn();
+const signInSocialMock = vi.fn();
 const sendVerificationEmailMock = vi.fn();
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    signIn: { email: (...args: unknown[]) => signInEmailMock(...args) },
+    signIn: {
+      email: (...args: unknown[]) => signInEmailMock(...args),
+      social: (...args: unknown[]) => signInSocialMock(...args),
+    },
     sendVerificationEmail: (...args: unknown[]) =>
       sendVerificationEmailMock(...args),
   },
@@ -61,11 +65,13 @@ function fillForm({
 describe("LoginPage", () => {
   beforeEach(() => {
     signInEmailMock.mockReset();
+    signInSocialMock.mockReset();
     sendVerificationEmailMock.mockReset();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("renders the form fields, turnstile widget, and the navigation links", () => {
@@ -218,5 +224,38 @@ describe("LoginPage", () => {
     expect(
       await screen.findByText(/verificação anti-bot inválida/i),
     ).toBeInTheDocument();
+  });
+
+  it("hides the Google button when VITE_GOOGLE_ENABLED is not 'true'", () => {
+    renderLogin();
+    expect(
+      screen.queryByRole("button", { name: /continuar com google/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the Google button when enabled and triggers signIn.social with the default callbackURL", () => {
+    vi.stubEnv("VITE_GOOGLE_ENABLED", "true");
+    renderLogin();
+    const googleButton = screen.getByRole("button", {
+      name: /continuar com google/i,
+    });
+    fireEvent.click(googleButton);
+    expect(signInSocialMock).toHaveBeenCalledTimes(1);
+    expect(signInSocialMock).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/historico",
+    });
+  });
+
+  it("passes the ?next= destination to signIn.social as the callbackURL", () => {
+    vi.stubEnv("VITE_GOOGLE_ENABLED", "true");
+    renderLogin(["/login?next=%2Ffinanciamento"]);
+    fireEvent.click(
+      screen.getByRole("button", { name: /continuar com google/i }),
+    );
+    expect(signInSocialMock).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/financiamento",
+    });
   });
 });

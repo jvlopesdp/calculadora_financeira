@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RegisterPage } from "@/features/auth/pages/register-page";
 
 const signUpEmailMock = vi.fn();
+const signInSocialMock = vi.fn();
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
     signUp: { email: (...args: unknown[]) => signUpEmailMock(...args) },
+    signIn: { social: (...args: unknown[]) => signInSocialMock(...args) },
   },
 }));
 
@@ -26,9 +28,9 @@ vi.mock("@/features/auth/components/turnstile-field", () => ({
   },
 }));
 
-function renderRegister() {
+function renderRegister(initialEntries: string[] = ["/register"]) {
   return render(
-    <MemoryRouter initialEntries={["/register"]}>
+    <MemoryRouter initialEntries={initialEntries}>
       <Routes>
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/check-email" element={<div>Verifique seu email</div>} />
@@ -57,10 +59,12 @@ function fillForm({
 describe("RegisterPage", () => {
   beforeEach(() => {
     signUpEmailMock.mockReset();
+    signInSocialMock.mockReset();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("renders the form fields, turnstile widget, and link to login", () => {
@@ -155,5 +159,37 @@ describe("RegisterPage", () => {
     expect(
       await screen.findByText(/verificação anti-bot inválida/i),
     ).toBeInTheDocument();
+  });
+
+  it("hides the Google button when VITE_GOOGLE_ENABLED is not 'true'", () => {
+    renderRegister();
+    expect(
+      screen.queryByRole("button", { name: /continuar com google/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the Google button when enabled and triggers signIn.social with the default callbackURL", () => {
+    vi.stubEnv("VITE_GOOGLE_ENABLED", "true");
+    renderRegister();
+    fireEvent.click(
+      screen.getByRole("button", { name: /continuar com google/i }),
+    );
+    expect(signInSocialMock).toHaveBeenCalledTimes(1);
+    expect(signInSocialMock).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/historico",
+    });
+  });
+
+  it("passes the ?next= destination to signIn.social as the callbackURL", () => {
+    vi.stubEnv("VITE_GOOGLE_ENABLED", "true");
+    renderRegister(["/register?next=%2Ffinanciamento"]);
+    fireEvent.click(
+      screen.getByRole("button", { name: /continuar com google/i }),
+    );
+    expect(signInSocialMock).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/financiamento",
+    });
   });
 });

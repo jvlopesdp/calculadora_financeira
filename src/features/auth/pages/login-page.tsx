@@ -20,6 +20,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { GoogleSignInButton } from "@/features/auth/components/google-sign-in-button";
 import { TurnstileField } from "@/features/auth/components/turnstile-field";
 import {
   loginSchema,
@@ -194,6 +195,7 @@ export function LoginPage() {
             {flashMessage}
           </p>
         ) : null}
+        <GoogleSignInButton next={searchParams.get("next")} />
         <Form {...form}>
           <form className="space-y-4" onSubmit={onSubmit} noValidate>
             <FormField

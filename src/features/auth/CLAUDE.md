@@ -43,3 +43,13 @@ zod schemas under `schemas/`.
   navigates to `/login?flash=<msg>`; `LoginPage` renders the decoded
   message above the form with `aria-live="polite"`. No global toast
   system — a single querystring read keeps the auth flow self-contained.
+- **Google sign-in** lives in `components/google-sign-in-button.tsx`. The
+  component self-gates: it returns `null` unless
+  `import.meta.env.VITE_GOOGLE_ENABLED === "true"` (hidden by default until
+  the prod secrets exist — the backend mirrors this in `src/server/auth.ts`).
+  When enabled it renders the button + an "ou" divider above the form, and
+  calls `authClient.signIn.social({ provider: "google", callbackURL })`. The
+  `callbackURL` comes from the page's `?next=` (same anti-open-redirect guard
+  as `LoginPage`, fallback `/historico`). In tests, flip the flag with
+  `vi.stubEnv("VITE_GOOGLE_ENABLED", "true")` + `vi.unstubAllEnvs()` in
+  `afterEach`, and add `signIn.social` to the `@/lib/auth-client` mock.
