@@ -48,6 +48,9 @@ Before adding a new shadcn block, grep `ui/` — most common primitives are alre
 - Series `color` is a CSS token (`"var(--chart-1)"` … `"var(--chart-5)"`) so light/dark themes work via tokens in `src/index.css`.
 - `ChartPoint` is intentionally minimal (`{ month: number }`); concrete data types from `src/features/simulator/components/charts/*-data.ts` flow through as structural subtypes. Keep the engine calls in the `*-data.ts` builders — `ChartAreaInteractive` is pure presentation.
 - Stacked area composition: set `kind: "area"` + give two series the same `stackId`. The default `fillOpacity` is `0.5`.
+- Per-series line styling: `SeriesData` accepts optional `strokeDasharray` (e.g. `"6 4"` for a dashed line) and `strokeWidth` (defaults to 2). Used to distinguish overlapping curves (e.g. the tracker's solid Realizado / dashed Normal / thin Meta).
+- Reference markers: a `ChartView.markers?: ChartMarker[]` (`{ month, value, label, color }`) renders a `ReferenceDot` + label on top of the series (e.g. an early-payoff "Quitado em mês N" point). Markers are sliced by the active time-range like the data; the canvas exposes `data-marker-count` for tests.
+- `notice?: React.ReactNode` prop renders an arbitrary banner inside the card, above the chart body (e.g. the tracker's "meta inválida" warning when a series can't be drawn).
 
 **Don't reintroduce per-chart components.** The old `OutstandingBalanceChart`, `NetWorthChart`, `InstallmentCompositionChart`, `InterestSavingsChart` were collapsed into this one shell in US-023. New chart needs become a `ChartView` entry, not a new file under `features/simulator/components/charts/`.
 

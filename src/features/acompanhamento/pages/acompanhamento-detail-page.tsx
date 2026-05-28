@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeleteTrackerPlanDialog } from "@/features/acompanhamento/components/delete-tracker-plan-dialog";
+import { TrackerCurvesChart } from "@/features/acompanhamento/components/tracker-curves-chart";
 import { TrackerSpreadsheet } from "@/features/acompanhamento/components/tracker-spreadsheet";
 import { buildCurves } from "@/features/acompanhamento/lib/build-curves";
 import { buildTrackerKpis } from "@/features/acompanhamento/lib/build-tracker-kpis";
@@ -142,6 +143,8 @@ export function AcompanhamentoDetailPage() {
       {curves && (
         <TrackerSpreadsheet plan={plan} entries={detail.entries} curves={curves} />
       )}
+
+      {curves && <TrackerCurvesChart curves={curves} />}
 
       <DeleteTrackerPlanDialog
         open={deleteOpen}

@@ -32,6 +32,12 @@ vi.mock("@/lib/queries/tracker-plans", () => ({
   useDeleteTrackerEntry: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+// The comparative chart renders recharts (needs ResizeObserver); stub it out so
+// this page test stays focused on header/KPIs/spreadsheet/delete behaviour.
+vi.mock("@/features/acompanhamento/components/tracker-curves-chart", () => ({
+  TrackerCurvesChart: () => <div data-testid="tracker-curves-chart" />,
+}));
+
 // Passthrough Dialog so the confirmation content renders when `open` is true,
 // avoiding the Radix portal dance in jsdom.
 vi.mock("@/components/ui/dialog", () => {
