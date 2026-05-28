@@ -216,11 +216,32 @@ export async function deletePayment(
   return body.payment;
 }
 
+export interface CreateTrackerPlanInput {
+  name: string;
+  propertyValue: number;
+  downPayment: number;
+  termMonths: number;
+  annualRate: number;
+  modality: "PRICE" | "SAC";
+  startDate: string;
+  targetMonthlyTotal: number;
+}
+
 export async function listTrackerPlans(): Promise<TrackerPlanApi[]> {
   const body = await jsonFetch<{ plans: TrackerPlanApi[] }>(
     "/api/tracker/plans",
   );
   return body.plans;
+}
+
+export async function createTrackerPlan(
+  input: CreateTrackerPlanInput,
+): Promise<TrackerPlanApi> {
+  const body = await jsonFetch<{ plan: TrackerPlanApi }>("/api/tracker/plans", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return body.plan;
 }
 
 export interface SessionResponse {

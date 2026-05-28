@@ -351,3 +351,28 @@ Started: Wed May 27 19:10:33 PDT 2026
   - `/acompanhamento/novo` (US-016) e `/acompanhamento/:id` (US-017) ainda NÃO existem como rotas — a página de lista já navega pra elas, mas cair nessas URLs hoje bate no NotFound. US-016/017 devem adicionar as rotas sob o mesmo `<ProtectedRoute/>`.
   - `useTrackerPlan(id)` (US-017) deve usar `trackerPlanQueryKey(id)` (já exportado) e consumir GET /api/tracker/plans/:id que devolve `{ plan, entries }` (shape do server, US-010).
 ---
+
+## 2026-05-27 - US-016 — Página /acompanhamento/novo (formulário de criação com validação)
+- Implemented:
+  - `src/features/acompanhamento/schemas/create-tracker-plan.ts` (novo): `createTrackerPlanSchema` (Zod) + `CreateTrackerPlanFormValues`. Campos: name (trim, min1/max100), propertyValue>0, downPayment>=0, termMonths int>0, annualRate>0, modality enum PRICE/SAC, startDate YYYY-MM-DD, targetMonthlyTotal>0. `.refine(downPayment < propertyValue)` com path `["downPayment"]` (mensagens pt-BR, espelha o create-scenario schema). O shape do form é IDÊNTICO a `CreateTrackerPlanInput` do api-client → values vão direto para o mutation sem mapeamento.
+  - `src/lib/api-client.ts`: tipo `CreateTrackerPlanInput` + função plain `createTrackerPlan(input)` (POST /api/tracker/plans, desembrulha `{ plan }`).
+  - `src/lib/queries/tracker-plans.ts`: `useCreateTrackerPlan()` mutation — chama `createTrackerPlan`, `onSuccess` invalida `TRACKER_PLANS_QUERY_KEY` (`['tracker-plans']`). NÃO faz setQueryData no detail key porque o GET /:id devolve `{ plan, entries }` (shape diferente de `TrackerPlanApi`); deixar US-017 buscar fresh evita acoplar a forma do cache.
+  - `src/features/acompanhamento/pages/acompanhamento-novo-page.tsx` (novo): react-hook-form + zodResolver (mode onBlur), reusa `CurrencyInput`/`PercentageInput`/`Select`/`Input` + os primitives `Form*` do shadcn (FormField/FormItem/FormLabel/FormControl/FormMessage/FormDescription). Nenhuma lógica financeira no componente. Submit chama `mutateAsync(values)` e navega para `/acompanhamento/${plan.id}`. Tratamento de erro: 422 com `message === "down_payment_must_be_less_than_property_value"` → `form.setError("downPayment", ...)` (mapeia ao campo); outros 422 → erro de formulário genérico; 401 → "Sessão expirada"; resto → mensagem do erro/rede. Botões "Cancelar" (→ /acompanhamento) e "Criar plano" (disabled enquanto pending, texto "Criando…").
+  - `src/app/routes.tsx`: rota `/acompanhamento/novo` sob o mesmo `<ProtectedRoute/>` dentro do `<AppShell/>` (ao lado de /acompanhamento). `getPageTitle` já mapeia `/acompanhamento*` → "Acompanhamento" (US-015) — sem mudança em site-header.
+  - `src/features/acompanhamento/pages/acompanhamento-novo-page.test.tsx` (novo, 4 testes): mocka `useNavigate` (partial react-router-dom) e stub `fetch` global (exercita hook + api-client reais). Casos: render dos 8 campos; submit válido → POST /api/tracker/plans com body correto + navigate("/acompanhamento/tp_new"); submit vazio → erros de validação em FormMessage e fetch NÃO chamado; 422 down_payment do servidor → mensagem mapeada ao campo Entrada, sem navigate.
+- Files changed:
+  - src/features/acompanhamento/schemas/create-tracker-plan.ts (new)
+  - src/features/acompanhamento/pages/acompanhamento-novo-page.tsx (new), acompanhamento-novo-page.test.tsx (new)
+  - src/lib/api-client.ts
+  - src/lib/queries/tracker-plans.ts
+  - src/app/routes.tsx
+  - scripts/ralph/prd.json (US-016 passes:true)
+- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (novo-page 4/4 + tracker-plans query 2/2) verdes; `bun run test` → 700 testes em 68 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
+- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (logar, abrir /acompanhamento/novo, preencher e submeter → cria o plano e cai em /acompanhamento/:id; campos inválidos mostram FormMessage).
+- **Learnings for future iterations:**
+  - O shape do form de criação é IDÊNTICO a `CreateTrackerPlanInput` (name/propertyValue/downPayment/termMonths/annualRate/modality/startDate/targetMonthlyTotal — BRL e % crus, NÃO cents/bp). A conversão BRL→cents e %→bp acontece no SERVER (tracker-plans.ts `toCents`/`toBasisPoints`), nunca no client. Então `mutateAsync(values)` passa direto sem map.
+  - Mutations do tracker que criam um recurso só invalidam a LISTA (`['tracker-plans']`). Evitar `setQueryData(trackerPlanQueryKey(id), created)` porque o GET /:id devolve `{ plan, entries }` e semear `TrackerPlanApi` cru corromperia o cache que US-017 (`useTrackerPlan`) vai ler.
+  - Para o `Select` (shadcn = `<select>` nativo) dentro de um `FormField`, basta `<Select {...field}>` — `field` já traz value/onChange/onBlur/name/ref compatíveis com select nativo. Default "PRICE" via defaultValues.
+  - Testar uma página com mutation TanStack: stub `fetch` global (Response-like `{ ok, status, statusText, json }`) + envolver em `<QueryClientProvider>` (retry:false) + `<MemoryRouter>`, mockar `useNavigate` para asserir a navegação pós-sucesso. Preencher CurrencyInput/PercentageInput com `fireEvent.change(target.value="500000")` (+ blur opcional) — `parseBRL`/`parsePercentage` aceitam dígitos crus.
+  - Mapeamento de erro 422 do servidor: a API do tracker devolve `{ error: "validation", message?: "down_payment_must_be_less_than_property_value" }`. Só o caso down_payment tem `message` mapeável a um campo (`form.setError`); os demais 422 (issues do Zod) caem no erro de formulário genérico. O Zod do client já bloqueia downPayment>=propertyValue antes do POST, então o 422 desse campo é defensivo (race/regra futura).
+---

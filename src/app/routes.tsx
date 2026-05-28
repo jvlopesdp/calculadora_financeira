@@ -10,6 +10,7 @@ import { LoginPage } from "@/features/auth/pages/login-page";
 import { RegisterPage } from "@/features/auth/pages/register-page";
 import { ResetPasswordPage } from "@/features/auth/pages/reset-password-page";
 import { VerifyEmailPage } from "@/features/auth/pages/verify-email-page";
+import { AcompanhamentoNovoPage } from "@/features/acompanhamento/pages/acompanhamento-novo-page";
 import { AcompanhamentoPage } from "@/features/acompanhamento/pages/acompanhamento-page";
 import { HistoricoDetalhePage } from "@/features/historico/pages/historico-detalhe-page";
 import { HistoricoPage } from "@/features/historico/pages/historico-page";
@@ -44,6 +45,10 @@ export function AppRoutes() {
             element={<HistoricoDetalhePage />}
           />
           <Route path="/acompanhamento" element={<AcompanhamentoPage />} />
+          <Route
+            path="/acompanhamento/novo"
+            element={<AcompanhamentoNovoPage />}
+          />
         </Route>
       </Route>
 
