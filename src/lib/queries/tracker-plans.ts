@@ -8,9 +8,12 @@ import {
 
 import {
   createTrackerPlan,
+  deleteTrackerPlan,
+  getTrackerPlan,
   listTrackerPlans,
   type CreateTrackerPlanInput,
   type TrackerPlanApi,
+  type TrackerPlanDetail,
 } from "@/lib/api-client";
 
 export const TRACKER_PLANS_QUERY_KEY = ["tracker-plans"] as const;
@@ -26,6 +29,21 @@ export function useTrackerPlans(): UseQueryResult<TrackerPlanApi[], Error> {
   });
 }
 
+export function useTrackerPlan(
+  id: string | undefined,
+): UseQueryResult<TrackerPlanDetail, Error> {
+  return useQuery({
+    queryKey: trackerPlanQueryKey(id ?? ""),
+    queryFn: () => {
+      if (!id) {
+        throw new Error("tracker plan id is required");
+      }
+      return getTrackerPlan(id);
+    },
+    enabled: Boolean(id),
+  });
+}
+
 export function useCreateTrackerPlan(): UseMutationResult<
   TrackerPlanApi,
   Error,
@@ -36,6 +54,21 @@ export function useCreateTrackerPlan(): UseMutationResult<
     mutationFn: (input: CreateTrackerPlanInput) => createTrackerPlan(input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: TRACKER_PLANS_QUERY_KEY });
+    },
+  });
+}
+
+export function useDeleteTrackerPlan(): UseMutationResult<
+  TrackerPlanApi,
+  Error,
+  string
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteTrackerPlan(id),
+    onSuccess: (deleted) => {
+      void qc.invalidateQueries({ queryKey: TRACKER_PLANS_QUERY_KEY });
+      qc.removeQueries({ queryKey: trackerPlanQueryKey(deleted.id) });
     },
   });
 }

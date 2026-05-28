@@ -34,6 +34,22 @@ export interface TrackerPlanApi {
   updated_at: number;
 }
 
+export interface TrackerEntryApi {
+  id: string;
+  plan_id: string;
+  month_index: number;
+  paid_amount_cents: number;
+  paid_at: string;
+  apply_mode: "reduce_term" | "reduce_installment";
+  note: string | null;
+  created_at: number;
+}
+
+export interface TrackerPlanDetail {
+  plan: TrackerPlanApi;
+  entries: TrackerEntryApi[];
+}
+
 export interface PaymentApi {
   id: string;
   scenario_id: string;
@@ -241,6 +257,22 @@ export async function createTrackerPlan(
     method: "POST",
     body: JSON.stringify(input),
   });
+  return body.plan;
+}
+
+export async function getTrackerPlan(id: string): Promise<TrackerPlanDetail> {
+  return jsonFetch<TrackerPlanDetail>(
+    `/api/tracker/plans/${encodeURIComponent(id)}`,
+  );
+}
+
+export async function deleteTrackerPlan(id: string): Promise<TrackerPlanApi> {
+  const body = await jsonFetch<{ plan: TrackerPlanApi }>(
+    `/api/tracker/plans/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
+  );
   return body.plan;
 }
 
