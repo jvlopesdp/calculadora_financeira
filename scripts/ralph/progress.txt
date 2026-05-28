@@ -15,6 +15,10 @@ Started: Wed May 27 19:10:33 PDT 2026
 - Better Auth: `createAuth(env)` (in `src/server/auth.ts`) runs fine with a fake `DB: {} as D1Database` (init is lazy w.r.t. queries) and the returned instance exposes the RAW options passed to `betterAuth()` on `.options`. So server tests can assert config (e.g. `createAuth(env).options.socialProviders`) by calling the REAL `createAuth` — no need to mock `betterAuth`. Mocking `better-auth` is risky because `better-auth/api` (`createAuthMiddleware`, used in the before-hook) imports from it.
 - Env-gated UI (e.g. `VITE_GOOGLE_ENABLED`): read `import.meta.env.X` AT RENDER (inside the component), not in a module-top const — only then does `vi.stubEnv('X','true')` (+ `vi.unstubAllEnvs()` in afterEach) take effect in tests. Keep the gating + any sibling markup INSIDE the component and export only the component, to avoid the `react-refresh/only-export-components` warning.
 - KNOWN FLAKY (under heavy load only): the full `bun run test` can exit code 1 due to ~4 post-teardown "Unhandled Rejection: BetterAuthError: Failed to initialize database adapter" from `src/server/auth-google.test.ts`, even with all tests passing. It passes 4/4 in isolation (`vitest run src/server/auth-google.test.ts`). It's a lazy D1-adapter init race in the REAL `createAuth`, not a real failure.
+- D1 migrations: lowercase SQL with double-quoted identifiers; FKs are `references "user" ("id") on delete cascade` (the Better Auth user table is `"user"`). Apply locally with `bunx --bun wrangler d1 migrations apply calculadora-financeira-db --local` (or `bun run db:migrate:local`); migrations live in `migrations/` (configured in wrangler.jsonc). Files are numbered `000N_name.sql`.
+- D1 upsert pattern (SQLite): `insert into "t" (...) values (?,?) on conflict("pk_col") do update set "c" = excluded."c"`. Use this for one-row-per-user / one-per-key tables.
+- Server route ordering GOTCHA: in a Hono sub-app, register STATIC paths (e.g. `get("/draft")`) BEFORE param paths (`get("/:id")`) so the static path wins. Sub-apps mounted in `src/server/index.ts` that bring their own `requireUser` must be mounted BEFORE the generic `app.use("/api/*", requireUser)`; more specific mount paths (e.g. `/api/scenarios/:scenarioId/payments`) go before less specific (`/api/scenarios`).
+- Server test FakeD1 (`src/server/routes/*.test.ts`): a hand-rolled in-memory D1 stub whose `prepare(sql)` dispatches on `sql.startsWith(...)` and THROWS on unrecognised SQL — so any new query needs a matching branch in `run()`/`first()`/`all()`, or the test fails loudly. `buildApp(userId)` mocks `createAuth` to return a fake session; the 401 path mocks `getSession: async () => null`.
 ---
 
 ## 2026-05-27 - US-001 — TanStack Query + persister
@@ -152,4 +156,25 @@ Started: Wed May 27 19:10:33 PDT 2026
   - Para esconder UI atrás de uma env var de forma TESTÁVEL com `vi.stubEnv`, leia `import.meta.env.X` no RENDER (dentro do componente), não num const de top-level do módulo — senão o valor é capturado no import e o stub não tem efeito.
   - Componente que precisa exportar um helper junto dispara `react-refresh/only-export-components`. Para evitar: mantenha a lógica (gating, divisor) DENTRO do componente e exporte só o componente — assim o arquivo fica warning-free.
   - O botão social usa `authClient.signIn.social({ provider, callbackURL })`. Qualquer teste de página que renderize o botão precisa adicionar `signIn: { social: fn }` ao mock de `@/lib/auth-client` (além de `signIn.email`).
+---
+
+## 2026-05-27 - US-007 — Migration scenario_drafts + endpoints GET/PUT /api/scenarios/draft
+- Implemented:
+  - `migrations/0004_scenario_drafts.sql` (novo): tabela `scenario_drafts("user_id" text not null primary key references "user" ("id") on delete cascade, "payload" text not null, "updated_at" integer not null)` — lowercase + double-quoted identifiers, alinhado a 0002_domain.sql. `user_id` como PK garante UM rascunho por usuário (upsert). Aplicada com `bunx --bun wrangler d1 migrations apply calculadora-financeira-db --local` (2 commands executed successfully).
+  - `src/server/routes/scenarios.ts`: adicionado `draftPayloadSchema = z.record(z.unknown())` (valida só que é objeto; conteúdo opaco). Duas rotas registradas LOGO APÓS `scenariosRouter.use("*", requireUser)` e ANTES de `/:id` (para a rota estática `/draft` ganhar o match):
+    - `GET /draft`: `select "payload" from "scenario_drafts" where "user_id" = ?`; sem linha → `{ draft: null }`; com linha → `JSON.parse(payload)` (fallback null se corrompido) → `{ draft }`.
+    - `PUT /draft`: try/catch `c.req.json()` → 400 `invalid_json`; `safeParse` → 400 `validation` se não-objeto; upsert `insert ... on conflict("user_id") do update set "payload"=excluded."payload","updated_at"=excluded."updated_at"` com `JSON.stringify(payload)` e `updated_at = Date.now()`; responde `{ draft, updated_at }`.
+  - Protegidas pelo `requireUser` já existente do router (sem sessão → 401).
+  - `src/server/routes/scenarios.test.ts`: FakeD1 ganhou um `drafts: Map<string, {payload, updated_at}>` (exposto no retorno), branch de `insert into "scenario_drafts"` em `run()` e `select "payload" from "scenario_drafts"` em `first()`. Novo `describe("draft endpoints")` com 7 testes: 401 sem sessão, GET sem draft (null), PUT cria + persiste, PUT upsert (mesmo user → drafts.size 1), GET após PUT, PUT rejeita não-objeto (array) com 400, PUT rejeita JSON malformado com 400.
+- Files changed:
+  - migrations/0004_scenario_drafts.sql (new)
+  - src/server/routes/scenarios.ts
+  - src/server/routes/scenarios.test.ts
+  - scripts/ralph/prd.json (US-007 passes:true)
+- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); `bunx vitest run src/server/routes/scenarios.test.ts` → 28/28; `bun run test` → 615 testes em 59 arquivos TODOS passam (exit 1 apenas pelo KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionado a esta story).
+- **Learnings for future iterations:**
+  - Para "validar que é um objeto" sem inspecionar conteúdo, use `z.record(z.unknown())` — aceita `{}`/qualquer objeto, rejeita array/null/primitivo (Zod v3 `parsedType` check). Bom para payloads opacos.
+  - Adicionar rotas a um router existente não exige mudança no `index.ts` se o mount path não muda — `/draft` virou `/api/scenarios/draft` de graça. `/api/scenarios/draft` NÃO é capturado pelo payments router (mount `/api/scenarios/:scenarioId/payments` exige sufixo `/payments`).
+  - Ao adicionar SQL novo num route handler, lembre de adicionar o branch correspondente no FakeD1 do `.test.ts` — ele THROWA em SQL não reconhecido (falha alto), então é impossível esquecer se houver teste cobrindo a rota.
+  - US-008 (autosave do simulador) consome estes endpoints: GET devolve `{ draft: <objeto> | null }`, PUT recebe o objeto do rascunho direto no body (não embrulhado em `{ payload }`).
 ---
