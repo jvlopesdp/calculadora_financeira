@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeleteTrackerPlanDialog } from "@/features/acompanhamento/components/delete-tracker-plan-dialog";
 import { TrackerCurvesChart } from "@/features/acompanhamento/components/tracker-curves-chart";
+import { TrackerExportButton } from "@/features/acompanhamento/components/tracker-export-button";
 import { TrackerSpreadsheet } from "@/features/acompanhamento/components/tracker-spreadsheet";
 import { TrackerWhatIfDialog } from "@/features/acompanhamento/components/tracker-what-if-dialog";
 import { buildCurves } from "@/features/acompanhamento/lib/build-curves";
@@ -127,6 +128,7 @@ export function AcompanhamentoDetailPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <TrackerExportButton plan={plan} entries={detail.entries} />
           <Button
             type="button"
             variant="outline"
