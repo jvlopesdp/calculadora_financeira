@@ -5,6 +5,7 @@ import type { Env } from "./env";
 import { requireUser, type AuthVariables } from "./middleware/require-user";
 import paymentsRouter from "./routes/payments";
 import scenariosRouter from "./routes/scenarios";
+import trackerEntriesRouter from "./routes/tracker-entries";
 import trackerPlansRouter from "./routes/tracker-plans";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -41,6 +42,7 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
 // so the parent middleware does not double-run on every request.
 app.route("/api/scenarios/:scenarioId/payments", paymentsRouter);
 app.route("/api/scenarios", scenariosRouter);
+app.route("/api/tracker/plans/:planId/entries", trackerEntriesRouter);
 app.route("/api/tracker/plans", trackerPlansRouter);
 
 // Every /api/* route registered below this line requires a valid session.
