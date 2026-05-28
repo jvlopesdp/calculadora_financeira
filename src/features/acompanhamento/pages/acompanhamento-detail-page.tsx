@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DeleteTrackerPlanDialog } from "@/features/acompanhamento/components/delete-tracker-plan-dialog";
 import { TrackerCurvesChart } from "@/features/acompanhamento/components/tracker-curves-chart";
 import { TrackerSpreadsheet } from "@/features/acompanhamento/components/tracker-spreadsheet";
+import { TrackerWhatIfDialog } from "@/features/acompanhamento/components/tracker-what-if-dialog";
 import { buildCurves } from "@/features/acompanhamento/lib/build-curves";
 import { buildTrackerKpis } from "@/features/acompanhamento/lib/build-tracker-kpis";
 import { ApiError } from "@/lib/api-client";
@@ -28,6 +29,7 @@ export function AcompanhamentoDetailPage() {
   const planQuery = useTrackerPlan(id);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [whatIfOpen, setWhatIfOpen] = useState(false);
 
   const detail = planQuery.data ?? null;
 
@@ -125,6 +127,13 @@ export function AcompanhamentoDetailPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setWhatIfOpen(true)}
+          >
+            Simular antecipação
+          </Button>
           <Button type="button" variant="outline" disabled>
             Editar plano
           </Button>
@@ -145,6 +154,15 @@ export function AcompanhamentoDetailPage() {
       )}
 
       {curves && <TrackerCurvesChart curves={curves} />}
+
+      {curves && (
+        <TrackerWhatIfDialog
+          open={whatIfOpen}
+          onOpenChange={setWhatIfOpen}
+          plan={plan}
+          curves={curves}
+        />
+      )}
 
       <DeleteTrackerPlanDialog
         open={deleteOpen}

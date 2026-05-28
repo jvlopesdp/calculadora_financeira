@@ -22,6 +22,7 @@ import { Select } from "@/components/ui/select";
 import { CurrencyInput } from "@/components/finance/currency-input";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import type { TrackerCurves } from "@/features/acompanhamento/lib/build-curves";
+import { dueDateBR, dueDateIso } from "@/features/acompanhamento/lib/due-date";
 import {
   ApiError,
   type TrackerEntryApi,
@@ -57,46 +58,6 @@ interface SpreadsheetRow {
   /** Realized balance after the month; null once the plan is settled. */
   balanceAfter: Decimal | null;
   settled: boolean;
-}
-
-function shiftMonths(
-  startIso: string,
-  monthsToAdd: number,
-): { year: number; month: number; day: number } | null {
-  const parts = startIso.split("-");
-  if (parts.length !== 3) return null;
-  const year = Number(parts[0]);
-  const month = Number(parts[1]);
-  const day = Number(parts[2]);
-  if (
-    !Number.isFinite(year) ||
-    !Number.isFinite(month) ||
-    !Number.isFinite(day)
-  ) {
-    return null;
-  }
-  const zeroBased = month - 1 + monthsToAdd;
-  const targetYear = year + Math.floor(zeroBased / 12);
-  const targetMonth = (((zeroBased % 12) + 12) % 12) + 1;
-  const lastDay = new Date(targetYear, targetMonth, 0).getDate();
-  const targetDay = Math.min(day, lastDay);
-  return { year: targetYear, month: targetMonth, day: targetDay };
-}
-
-const pad = (value: number) => String(value).padStart(2, "0");
-
-/** Adds `monthsToAdd` to a "YYYY-MM-DD" date and formats as "DD/MM/YYYY". */
-function dueDateBR(startIso: string, monthsToAdd: number): string {
-  const s = shiftMonths(startIso, monthsToAdd);
-  if (!s) return startIso;
-  return `${pad(s.day)}/${pad(s.month)}/${s.year}`;
-}
-
-/** Adds `monthsToAdd` to a "YYYY-MM-DD" date and keeps the ISO form. */
-function dueDateIso(startIso: string, monthsToAdd: number): string {
-  const s = shiftMonths(startIso, monthsToAdd);
-  if (!s) return startIso;
-  return `${s.year}-${pad(s.month)}-${pad(s.day)}`;
 }
 
 function messageFromError(err: unknown): string {
