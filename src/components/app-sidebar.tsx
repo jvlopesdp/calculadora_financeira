@@ -17,7 +17,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useCurrentUser } from "@/lib/use-current-user";
+import { useSession } from "@/lib/queries/session";
 
 const baseNavMain: NavMainItem[] = [
   { title: "Financiamento", url: "/financiamento", icon: IconCalculator },
@@ -26,7 +26,7 @@ const baseNavMain: NavMainItem[] = [
 ];
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const { user } = useCurrentUser();
+  const { user } = useSession();
   const navMain = user
     ? baseNavMain
     : baseNavMain.filter((item) => item.url !== "/historico");

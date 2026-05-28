@@ -20,7 +20,7 @@ import {
 } from "@/lib/local-simulation-migration";
 import { ApiError } from "@/lib/api-client";
 import { useCreateScenario } from "@/lib/queries/scenarios";
-import { useCurrentUser } from "@/lib/use-current-user";
+import { useSession } from "@/lib/queries/session";
 
 type Status = "idle" | "importing" | "error";
 
@@ -35,7 +35,7 @@ type Status = "idle" | "importing" | "error";
  * - On import: POST /api/scenarios then `navigate(/historico/<novoId>)`.
  */
 export function MigrateLocalSimulationDialog() {
-  const { user, isLoading } = useCurrentUser();
+  const { user, isPending } = useSession();
   const createMutation = useCreateScenario();
   const navigate = useNavigate();
   const [legacy, setLegacy] = useState<LegacySimulation | null>(null);
@@ -44,7 +44,7 @@ export function MigrateLocalSimulationDialog() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isLoading || !user) return;
+    if (isPending || !user) return;
     if (isMigrationDone()) return;
     const candidate = readLegacySimulation();
     if (!candidate) {
@@ -55,7 +55,7 @@ export function MigrateLocalSimulationDialog() {
     }
     setLegacy(candidate);
     setOpen(true);
-  }, [isLoading, user]);
+  }, [isPending, user]);
 
   const handleDiscard = useCallback(() => {
     clearLegacySimulation();

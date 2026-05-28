@@ -10,6 +10,8 @@ Started: Wed May 27 19:10:33 PDT 2026
 - `src/tests/setup.ts` only imports `@testing-library/jest-dom/vitest`; jsdom is the global env.
 - Server-state hooks live in `src/lib/queries/*` (TanStack Query). queryKey convention: `['scenarios']` (list), `['scenario', id]` (detail), `['scenarios', scenarioId, 'payments']` via `paymentsQueryKey`. Mutations invalidate their list key in `onSuccess`. Plain `fetch` wrappers stay in `src/lib/api-client.ts` and are the queryFn bodies — don't call them directly from components, go through the hooks (or `useQueries` for dynamic lists).
 - TEST GOTCHA: any test rendering a component that uses a TanStack hook (`useQuery`/`useMutation`/`useQueryClient`) — including anything under `<AppRoutes/>` or `<AppShell/>` (the shell mounts `MigrateLocalSimulationDialog`) — must wrap the render in `<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>` or it throws "No QueryClient set".
+- Session = `useSession()` from `src/lib/queries/session.ts` (TanStack, queryKey `['session']`). It's the ONLY session source in app code — returns `{ user, session, isPending, isError }`, `null` response → `{ user: null, session: null }`. Sign-out is `useSignOut()` (POST /api/auth/sign-out → invalidates `['session']`). `@/lib/auth-client` (the Better Auth client) is reserved for the auth forms under `src/features/auth/**` (sign-in/up/reset) + the type re-exports in `session.ts`/`api-client.ts`. Don't reintroduce `use-current-user`.
+- TEST GOTCHA: when a test mocks `@/lib/queries/session`, the factory must export EVERY function the rendered tree calls. `NavUser` calls both `useSession` AND `useSignOut`; since `AppSidebar`/`AppShell` render `NavUser`, those tests' mocks need `useSignOut: () => ({ mutate: vi.fn() })` too — otherwise "No useSignOut export is defined on the mock". Mocks return the flattened `{ user, session, isPending, isError }` shape, not a raw `UseQueryResult`.
 ---
 
 ## 2026-05-27 - US-001 — TanStack Query + persister
@@ -60,4 +62,29 @@ Started: Wed May 27 19:10:33 PDT 2026
   - Para listas dinâmicas (N cenários → N consultas de pagamentos) use `useQueries` chamando a função plain `listPayments` no `queryFn` (compartilha o mesmo `paymentsQueryKey` que `usePayments`), em vez de useEffect manual.
   - `useScenarios` aceita `{ enabled }` para preservar o lazy-load do `ScenarioCombobox` (só busca após o primeiro open). Com cache do TanStack, abrir o dropdown várias vezes dispara o fetch só uma vez — o teste "does not refetch on subsequent opens" valida isso sem `vi`.
   - `MigrateLocalSimulationDialog` agora usa `useCreateScenario()`; como ele é montado no `AppShell`, o teste `financiamento-page.test.tsx` (que não mocka api-client) passou a precisar do provider.
+---
+
+## 2026-05-27 - US-003 — useSession via TanStack Query como única fonte de verdade da sessão
+- Implemented:
+  - `src/lib/queries/session.ts` (novo): `useSession()` (queryKey `['session']` via `SESSION_QUERY_KEY`, queryFn `getSession`) devolve `{ user, session, isPending, isError }`, com resposta `null` virando `{ user: null, session: null }`. `useSignOut()` é uma mutation que chama `signOutRequest` (POST /api/auth/sign-out) e invalida `['session']` no `onSuccess`.
+  - `src/lib/api-client.ts`: novas funções plain `getSession()` (GET /api/auth/get-session, devolve `SessionResponse | null`) e `signOutRequest()` (POST /api/auth/sign-out); novo tipo `SessionResponse { user: AuthUser; session: AuthSession }` (importa os tipos de `./auth-client`).
+  - Removidos `src/lib/use-current-user.ts` e `.test.ts` (a antiga ponte sobre `authClient.useSession`).
+  - Migrados de `useCurrentUser` → `useSession`: `src/app/protected-route.tsx` (`isLoading` → `isPending`), `src/components/app-sidebar.tsx`, `src/components/nav-user.tsx` (sign-out agora via `useSignOut().mutate(undefined, { onSuccess })` em vez de `authClient.signOut`), `src/features/historico/components/migrate-local-simulation-dialog.tsx`.
+  - Tests: `src/lib/queries/session.test.tsx` (novo) cobre user/session derivados, resposta null → anônimo, isError no reject, e que `useSignOut` posta e invalida `['session']`. Atualizados `App.test.tsx`, `app-sidebar.test.tsx`, `nav-user.test.tsx`, `migrate-local-simulation-dialog.test.tsx` para mockar `@/lib/queries/session`.
+  - Persister já excluía `['session']` desde US-001 (`shouldDehydrateQuery` em `query-persister.ts`) — nenhuma mudança necessária.
+  - `grep '@/lib/auth-client'` em `src/` agora só aparece em `session.ts` (import de tipos) e nas páginas/forms de auth (`src/features/auth/**`), conforme o critério.
+- Files changed:
+  - src/lib/queries/session.ts (new), src/lib/queries/session.test.tsx (new)
+  - src/lib/api-client.ts
+  - src/lib/use-current-user.ts (deleted), src/lib/use-current-user.test.ts (deleted)
+  - src/app/protected-route.tsx
+  - src/components/app-sidebar.tsx, src/components/nav-user.tsx
+  - src/features/historico/components/migrate-local-simulation-dialog.tsx
+  - src/app/App.test.tsx, src/components/app-sidebar.test.tsx, src/components/nav-user.test.tsx, src/features/historico/components/migrate-local-simulation-dialog.test.tsx
+  - src/components/CLAUDE.md (doc do NavUser/AppSidebar atualizada para useSession/useSignOut)
+- Quality: `bun run typecheck` ok, `bun run lint` ok (só o warning pré-existente em site-header.tsx), `bun run test` 595 testes em 57 arquivos — todos passam.
+- **Learnings for future iterations:**
+  - GOTCHA: ao trocar um hook por outro num componente do shell, os testes que MOCKAM `@/lib/queries/session` precisam exportar TODAS as funções que o componente chama. `NavUser` usa `useSession` E `useSignOut`; `app-sidebar.test.tsx` renderiza `NavUser` indiretamente, então seu mock teve que ganhar `useSignOut: () => ({ mutate: vi.fn() })` além de `useSession` — senão vitest lança "No useSignOut export is defined on the mock".
+  - O contrato do `useSession()` é `{ user, session, isPending, isError }` (não `{ data, isLoading }`). Mocks nos testes devem devolver esse shape achatado, não o `UseQueryResult` cru do TanStack.
+  - `getSession()` chama `GET /api/auth/get-session` do Better Auth, que responde `200` com `null` quando não há cookie de sessão — por isso o tipo é `SessionResponse | null` e o hook normaliza para anônimo.
 ---

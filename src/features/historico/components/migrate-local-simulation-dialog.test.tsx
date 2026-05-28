@@ -20,8 +20,8 @@ import { ApiError, type ScenarioApi } from "@/lib/api-client";
 const useSessionMock = vi.fn();
 const createScenarioMock = vi.fn();
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: { useSession: () => useSessionMock() },
+vi.mock("@/lib/queries/session", () => ({
+  useSession: () => useSessionMock(),
 }));
 
 vi.mock("@/lib/api-client", async () => {
@@ -86,35 +86,35 @@ function setLegacyData() {
 
 function mockAuthed() {
   useSessionMock.mockReturnValue({
-    data: {
-      user: {
-        id: "user-1",
-        email: "joao@exemplo.com",
-        name: "João",
-        emailVerified: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      session: {},
+    user: {
+      id: "user-1",
+      email: "joao@exemplo.com",
+      name: "João",
+      emailVerified: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     },
+    session: {},
     isPending: false,
-    error: null,
+    isError: false,
   });
 }
 
 function mockAnonymous() {
   useSessionMock.mockReturnValue({
-    data: null,
+    user: null,
+    session: null,
     isPending: false,
-    error: null,
+    isError: false,
   });
 }
 
 function mockLoading() {
   useSessionMock.mockReturnValue({
-    data: null,
+    user: null,
+    session: null,
     isPending: true,
-    error: null,
+    isError: false,
   });
 }
 

@@ -17,10 +17,9 @@ import { SimulationProvider } from "@/features/simulator/hooks/simulation-provid
 
 const useSessionMock = vi.fn();
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: {
-    useSession: () => useSessionMock(),
-  },
+vi.mock("@/lib/queries/session", () => ({
+  useSession: () => useSessionMock(),
+  useSignOut: () => ({ mutate: vi.fn() }),
 }));
 
 type MediaQueryListener = (event: MediaQueryListEvent) => void;
@@ -44,14 +43,15 @@ function stubMatchMedia(prefersDark: boolean) {
 }
 
 function setSession(value: {
-  data: unknown;
+  data: { user?: unknown; session?: unknown } | null;
   isPending: boolean;
-  error?: Error | null;
+  isError?: boolean;
 }) {
   (useSessionMock as Mock).mockReturnValue({
-    data: value.data,
+    user: value.data?.user ?? null,
+    session: value.data?.session ?? null,
     isPending: value.isPending,
-    error: value.error ?? null,
+    isError: value.isError ?? false,
   });
 }
 

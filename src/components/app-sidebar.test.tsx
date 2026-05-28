@@ -6,11 +6,11 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
 const useSessionMock = vi.fn();
+const signOutMutateMock = vi.fn();
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: {
-    useSession: () => useSessionMock(),
-  },
+vi.mock("@/lib/queries/session", () => ({
+  useSession: () => useSessionMock(),
+  useSignOut: () => ({ mutate: signOutMutateMock }),
 }));
 
 function stubMatchMedia() {
@@ -31,14 +31,15 @@ function stubMatchMedia() {
 }
 
 function setSession(value: {
-  data: unknown;
+  data: { user?: unknown; session?: unknown } | null;
   isPending: boolean;
-  error?: Error | null;
+  isError?: boolean;
 }) {
   (useSessionMock as Mock).mockReturnValue({
-    data: value.data,
+    user: value.data?.user ?? null,
+    session: value.data?.session ?? null,
     isPending: value.isPending,
-    error: value.error ?? null,
+    isError: value.isError ?? false,
   });
 }
 

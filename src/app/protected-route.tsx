@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
-import { useCurrentUser } from "@/lib/use-current-user";
+import { useSession } from "@/lib/queries/session";
 
 /**
  * Gate de rota: redireciona para /login se o usuário não estiver autenticado.
@@ -9,10 +9,10 @@ import { useCurrentUser } from "@/lib/use-current-user";
  * Usado como wrapper de rotas pai no react-router (`<Route element={<ProtectedRoute/>}>`).
  */
 export function ProtectedRoute() {
-  const { user, isLoading } = useCurrentUser();
+  const { user, isPending } = useSession();
   const location = useLocation();
 
-  if (isLoading) {
+  if (isPending) {
     return (
       <div
         role="status"

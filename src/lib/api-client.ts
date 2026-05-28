@@ -4,6 +4,8 @@
  * `credentials: "same-origin"`). Non-2xx responses throw an `ApiError` so
  * callers can `try/catch` without re-reading `res.ok`.
  */
+import type { AuthSession, AuthUser } from "./auth-client";
+
 export interface ScenarioApi {
   id: string;
   user_id: string;
@@ -197,4 +199,18 @@ export async function deletePayment(
     },
   );
   return body.payment;
+}
+
+export interface SessionResponse {
+  user: AuthUser;
+  session: AuthSession;
+}
+
+/** Better Auth returns `null` (200) when there is no active session cookie. */
+export async function getSession(): Promise<SessionResponse | null> {
+  return jsonFetch<SessionResponse | null>("/api/auth/get-session");
+}
+
+export async function signOutRequest(): Promise<void> {
+  await jsonFetch<unknown>("/api/auth/sign-out", { method: "POST" });
 }
