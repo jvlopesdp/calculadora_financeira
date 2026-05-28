@@ -68,6 +68,18 @@ export function createAuth(env: Env) {
         );
       },
     },
+    // Additive social login: only wire Google when BOTH secrets are present, so
+    // the email/password flow is unaffected when they are missing (dev/preview).
+    ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? {
+          socialProviders: {
+            google: {
+              clientId: env.GOOGLE_CLIENT_ID,
+              clientSecret: env.GOOGLE_CLIENT_SECRET,
+            },
+          },
+        }
+      : {}),
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (!ctx.path) return;

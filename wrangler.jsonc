@@ -19,6 +19,9 @@
   "vars": {
     "EMAIL_FROM": "no-reply@mail.visagismeai.com",
     "ENVIRONMENT": "production"
+    // Secrets (NOT plaintext vars) — set via `wrangler secret put <NAME>`:
+    //   BETTER_AUTH_SECRET, RESEND_API_KEY, TURNSTILE_SECRET_KEY
+    //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET  (enable Google social login; see docs/google-oauth.md)
   },
   "d1_databases": [
     {

@@ -12,6 +12,7 @@ Started: Wed May 27 19:10:33 PDT 2026
 - TEST GOTCHA: any test rendering a component that uses a TanStack hook (`useQuery`/`useMutation`/`useQueryClient`) — including anything under `<AppRoutes/>` or `<AppShell/>` (the shell mounts `MigrateLocalSimulationDialog`) — must wrap the render in `<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>` or it throws "No QueryClient set".
 - Session = `useSession()` from `src/lib/queries/session.ts` (TanStack, queryKey `['session']`). It's the ONLY session source in app code — returns `{ user, session, isPending, isError }`, `null` response → `{ user: null, session: null }`. Sign-out is `useSignOut()` (POST /api/auth/sign-out → invalidates `['session']`). `@/lib/auth-client` (the Better Auth client) is reserved for the auth forms under `src/features/auth/**` (sign-in/up/reset) + the type re-exports in `session.ts`/`api-client.ts`. Don't reintroduce `use-current-user`.
 - TEST GOTCHA: when a test mocks `@/lib/queries/session`, the factory must export EVERY function the rendered tree calls. `NavUser` calls both `useSession` AND `useSignOut`; since `AppSidebar`/`AppShell` render `NavUser`, those tests' mocks need `useSignOut: () => ({ mutate: vi.fn() })` too — otherwise "No useSignOut export is defined on the mock". Mocks return the flattened `{ user, session, isPending, isError }` shape, not a raw `UseQueryResult`.
+- Better Auth: `createAuth(env)` (in `src/server/auth.ts`) runs fine with a fake `DB: {} as D1Database` (init is lazy w.r.t. queries) and the returned instance exposes the RAW options passed to `betterAuth()` on `.options`. So server tests can assert config (e.g. `createAuth(env).options.socialProviders`) by calling the REAL `createAuth` — no need to mock `betterAuth`. Mocking `better-auth` is risky because `better-auth/api` (`createAuthMiddleware`, used in the before-hook) imports from it.
 ---
 
 ## 2026-05-27 - US-001 — TanStack Query + persister
@@ -107,4 +108,25 @@ Started: Wed May 27 19:10:33 PDT 2026
   - Guarda anti-open-redirect: sempre validar `next.startsWith("/") && !next.startsWith("//")` antes de navegar para um destino vindo da URL — bloqueia `//evil.com` e URLs absolutas.
   - `useSearchParams().get("next")` já devolve o valor DECODIFICADO; o `encodeURIComponent` no `ProtectedRoute` e o decode do react-router se cancelam — não decodifique de novo manualmente.
   - O botão "Entrar" do `NavUser` navega para `/login` sem `?next=` (clique manual) — cai no fallback `/historico`, o que é o comportamento desejado.
+---
+
+## 2026-05-27 - US-005 — Google como social provider no Better Auth (backend)
+- Implemented:
+  - `src/server/env.d.ts`: adicionados `GOOGLE_CLIENT_ID?` e `GOOGLE_CLIENT_SECRET?` (strings opcionais) à interface `Env`.
+  - `src/server/auth.ts`: dentro do `createAuth`, conditional spread aditivo — `...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { socialProviders: { google: { clientId, clientSecret } } } : {})` — inserido entre `emailAndPassword` e `hooks`. Resto do `createAuth` (rate limit, turnstile, email verification, reset password) intacto. Sem ambos os secrets, nenhuma chave `socialProviders` é emitida.
+  - `wrangler.jsonc`: comentário no bloco `vars` listando os secrets (incl. GOOGLE_CLIENT_ID/SECRET) que são definidos via `wrangler secret put`, apontando para docs/google-oauth.md.
+  - `docs/google-oauth.md` (novo): passo a passo de credenciais no Google Cloud Console, os 2 redirect URIs (localhost:5173 e calculadorafinanceira.app `/api/auth/callback/google`), comandos `wrangler secret put`, nota sobre VITE_GOOGLE_ENABLED (US-006).
+  - `src/server/auth-google.test.ts` (novo): 4 testes chamando o `createAuth` REAL com FakeD1 e inspecionando `.options.socialProviders` — omite quando ID ausente, omite quando só ID, omite quando só secret, e inclui `google: { clientId, clientSecret }` quando ambos presentes.
+- Files changed:
+  - src/server/env.d.ts
+  - src/server/auth.ts
+  - wrangler.jsonc
+  - docs/google-oauth.md (new)
+  - src/server/auth-google.test.ts (new)
+- Quality: `bun run typecheck` ok, `bun run lint` ok (só o warning pré-existente em site-header.tsx), `bun run test` 602 testes em 59 arquivos — todos passam.
+- **Learnings for future iterations:**
+  - Escopo Auth deste branch é ESTRITAMENTE ADITIVO: não refatorar `createAuth`, não trocar adapter D1, não tocar no fluxo email/senha. Gating de social provider via conditional spread mantém o diff localizado.
+  - Para testar config do Better Auth, chame o `createAuth` real (roda com `DB: {} as D1Database`) e leia `.options` — o instance expõe as opções cruas passadas a `betterAuth()`. Evite mockar `better-auth` porque `better-auth/api` (createAuthMiddleware no before-hook) depende do módulo real.
+  - Better Auth monta o redirect OAuth como `{BETTER_AUTH_URL}/api/auth/callback/google` — os redirect URIs no Google Console têm que bater exatamente (localhost:5173 em dev, calculadorafinanceira.app em prod).
+  - US-006 (botão front "Continuar com Google") já está prevista: front esconde o botão até `VITE_GOOGLE_ENABLED='true'`, e o backend só ativa o provider quando ambos os secrets existem — os dois lados ficam OFF por padrão.
 ---
