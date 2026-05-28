@@ -119,9 +119,11 @@ describe("AcompanhamentoDetailPage", () => {
     expect(
       screen.getByRole("heading", { name: "Plano X" }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/PRICE/)).toBeInTheDocument();
-    expect(screen.getByText(/12 meses/)).toBeInTheDocument();
-    expect(screen.getByText(/01\/01\/2025/)).toBeInTheDocument();
+    // Scope to the toolbar: the spreadsheet rows also render dates/metadata.
+    const toolbar = within(screen.getByTestId("acompanhamento-detail-toolbar"));
+    expect(toolbar.getByText(/PRICE/)).toBeInTheDocument();
+    expect(toolbar.getByText(/12 meses/)).toBeInTheDocument();
+    expect(toolbar.getByText(/01\/01\/2025/)).toBeInTheDocument();
   });
 
   it("shows '—' for every KPI when there are no entries", () => {

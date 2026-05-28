@@ -4,15 +4,9 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { SectionCards } from "@/components/section-cards";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DeleteTrackerPlanDialog } from "@/features/acompanhamento/components/delete-tracker-plan-dialog";
+import { TrackerSpreadsheet } from "@/features/acompanhamento/components/tracker-spreadsheet";
 import { buildCurves } from "@/features/acompanhamento/lib/build-curves";
 import { buildTrackerKpis } from "@/features/acompanhamento/lib/build-tracker-kpis";
 import { ApiError } from "@/lib/api-client";
@@ -145,22 +139,9 @@ export function AcompanhamentoDetailPage() {
 
       <SectionCards items={kpis} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Planilha mês a mês</CardTitle>
-          <CardDescription>
-            A planilha de lançamentos e os gráficos comparativos chegam nas
-            próximas etapas.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground text-sm">
-            {curves?.hasEntries
-              ? "Os KPIs acima refletem os lançamentos já registrados."
-              : "Você ainda não registrou nenhum lançamento neste plano."}
-          </p>
-        </CardContent>
-      </Card>
+      {curves && (
+        <TrackerSpreadsheet plan={plan} entries={detail.entries} curves={curves} />
+      )}
 
       <DeleteTrackerPlanDialog
         open={deleteOpen}
