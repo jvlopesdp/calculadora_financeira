@@ -306,3 +306,21 @@ Started: Wed May 27 19:10:33 PDT 2026
   - Modelo "sticky installment": a parcela vigente só muda quando um lançamento `reduce_installment` recalcula (sobre balance/remainingTerm pós-pagamento, igual replay-payments.ts). `reduce_term` mantém a parcela e deixa o `payment>=owed` disparar a quitação antecipada. Meses sem entry herdam a parcela vigente.
   - Sem lançamentos, `realizedSchedule` é IDÊNTICO a `normalSchedule` (mesmo rounding/settlement) — bom teste de regressão e o que a US-014 (goalSchedule meta=parcela) também deve satisfazer.
 ---
+
+## 2026-05-27 - US-014 — Engine puro core/finance/tracker/goalSchedule.ts (curva Meta)
+- Implemented:
+  - `src/core/finance/tracker/goalSchedule.ts` (novo): exporta `goalSchedule(plan: TrackerPlanInput, targetMonthlyTotal: Decimal): GoalResult` e `GoalResult = { months: ScheduleMonth[], paidOffAtMonth: number | null, invalidAtMonth: number | null }`. Reusa `ScheduleMonth`/`TrackerPlanInput` de `./normalSchedule` e as primitivas de baixo nível (`calculatePriceInstallment`, `roundMoney`). Walk próprio com Decimal.js, modelado no `realizedSchedule` mas SEM lançamentos: todo mês paga o mesmo valor TOTAL fixo (`targetMonthlyTotal`), sempre reduzindo prazo.
+    - Por mês computa a parcela vigente "sem antecipação" (PRICE = parcela fixa original constante; SAC = `sacBaseAmortization + interest`, decrescente). Se `target < scheduledInstallment` → retorna `invalidAtMonth = month` e para (não inventa pagamento parcial). Como ambas as parcelas são não-crescentes, a inviabilidade só ocorre no mês 1.
+    - Caso válido: `amortization = target - interest`, `balance -= amortization`. Mês final quando `month === termMonths || target >= owed || (owed - target) <= 0.01` → `installment = owed`, `amortization = balance`, `balance = 0`, `paidOffAtMonth = month`, trunca.
+  - `src/core/finance/tracker/goalSchedule.test.ts` (novo, 9 testes): meta = parcela == normalSchedule (PRICE small + fixture longo 300k/0.8%/360, row-a-row), meta > parcela encurta (small + fixture longo com saldo monotônico), meta < parcela → invalidAtMonth=1 (PRICE e SAC — SAC documenta que paramos no mês 1 mesmo que fosse válida depois), meta que zera saldo cedo (mês 1, trunca), SAC com meta acima da 1ª parcela encurta, termMonths<=0 → vazio.
+- Files changed:
+  - src/core/finance/tracker/goalSchedule.ts (new)
+  - src/core/finance/tracker/goalSchedule.test.ts (new)
+  - scripts/ralph/prd.json (US-014 passes:true)
+- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); `bunx vitest run src/core/finance/tracker/goalSchedule.test.ts` → 9/9; `bun run test` → 688 testes em 65 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
+- **Learnings for future iterations:**
+  - As TRÊS curvas do tracker já estão completas (US-012 normalSchedule, US-013 realizedSchedule, US-014 goalSchedule) e compartilham `ScheduleMonth`/`TrackerPlanInput` de `./normalSchedule`. A `build-curves.ts` da US-017 é o chokepoint que converte a row do plano (cents→BRL via `/100`, bp→fração via `annualToMonthlyRate(annual_rate_bp/10000)`) e chama as três: `normalSchedule(plan)`, `realizedSchedule(plan, entriesByMonth)`, `goalSchedule(plan, target_monthly_total_cents/100)`.
+  - `goalSchedule` NÃO depende de entries — pode ser plotado já na criação do plano (US-020 renderiza a curva Meta mesmo sem lançamentos).
+  - Contrato de invalidez: quando `targetMonthlyTotal < parcela vigente`, `invalidAtMonth != null` e `months`/`paidOffAtMonth` vêm vazios/null. Na prática `invalidAtMonth` é sempre 1 (parcela PRICE constante; parcela SAC decrescente), mas a UI (US-020) deve tratar `invalidAtMonth != null` genericamente e mostrar o aviso "Valor-meta menor que a parcela inicial" em vez da série.
+  - Meta = parcela (PRICE) reproduz `normalSchedule` linha a linha porque o caminho sem-excedente é idêntico (mesmo rounding/settlement) — mesma propriedade do `realizedSchedule` sem lançamentos.
+---
