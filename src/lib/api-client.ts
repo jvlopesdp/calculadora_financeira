@@ -266,6 +266,42 @@ export async function getTrackerPlan(id: string): Promise<TrackerPlanDetail> {
   );
 }
 
+export interface UpsertTrackerEntryInput {
+  month_index: number;
+  paid_amount: number;
+  paid_at: string;
+  apply_mode: "reduce_term" | "reduce_installment";
+  note?: string | null;
+}
+
+/** Creates or updates the entry for `month_index` (server upserts by month). */
+export async function upsertTrackerEntry(
+  planId: string,
+  input: UpsertTrackerEntryInput,
+): Promise<TrackerEntryApi> {
+  const body = await jsonFetch<{ entry: TrackerEntryApi }>(
+    `/api/tracker/plans/${encodeURIComponent(planId)}/entries`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+  return body.entry;
+}
+
+export async function deleteTrackerEntry(
+  planId: string,
+  entryId: string,
+): Promise<TrackerEntryApi> {
+  const body = await jsonFetch<{ entry: TrackerEntryApi }>(
+    `/api/tracker/plans/${encodeURIComponent(planId)}/entries/${encodeURIComponent(entryId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+  return body.entry;
+}
+
 export async function deleteTrackerPlan(id: string): Promise<TrackerPlanApi> {
   const body = await jsonFetch<{ plan: TrackerPlanApi }>(
     `/api/tracker/plans/${encodeURIComponent(id)}`,

@@ -27,6 +27,9 @@ vi.mock("@/lib/queries/tracker-plans", () => ({
     mutateAsync: deleteMutateAsync,
     isPending: false,
   }),
+  // The spreadsheet (rendered by the page) uses these entry mutations.
+  useUpsertTrackerEntry: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteTrackerEntry: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 // Passthrough Dialog so the confirmation content renders when `open` is true,
