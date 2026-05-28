@@ -8,6 +8,8 @@ Started: Wed May 27 19:10:33 PDT 2026
 - App entrypoints: `src/main.tsx` wires global providers (ThemeProvider, SimulationProvider, then `<App />`); `src/app/App.tsx` owns the router and now the QueryClientProvider. Avoid moving the QueryClientProvider into main.tsx because App.test.tsx renders `<AppRoutes />` directly without it (no providers needed for current tests).
 - Path alias `@/*` → `src/*` is configured in both tsconfig.app.json and vite.config.ts.
 - `src/tests/setup.ts` only imports `@testing-library/jest-dom/vitest`; jsdom is the global env.
+- Server-state hooks live in `src/lib/queries/*` (TanStack Query). queryKey convention: `['scenarios']` (list), `['scenario', id]` (detail), `['scenarios', scenarioId, 'payments']` via `paymentsQueryKey`. Mutations invalidate their list key in `onSuccess`. Plain `fetch` wrappers stay in `src/lib/api-client.ts` and are the queryFn bodies — don't call them directly from components, go through the hooks (or `useQueries` for dynamic lists).
+- TEST GOTCHA: any test rendering a component that uses a TanStack hook (`useQuery`/`useMutation`/`useQueryClient`) — including anything under `<AppRoutes/>` or `<AppShell/>` (the shell mounts `MigrateLocalSimulationDialog`) — must wrap the render in `<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>` or it throws "No QueryClient set".
 ---
 
 ## 2026-05-27 - US-001 — TanStack Query + persister
@@ -33,4 +35,29 @@ Started: Wed May 27 19:10:33 PDT 2026
   - Module top-level side effects (`startQueryPersister()` in App.tsx) are safe here because `App.test.tsx` renders `<AppRoutes />` directly, never importing `App.tsx`. Keep that invariant in future stories that touch App.tsx.
   - When writing a vitest test that uses `vi.resetModules()` + dynamic `import()`, also re-import any sibling module whose identity matters (`queryClient` here), otherwise referential equality checks fail because the top-level import captured the pre-reset instance.
   - For React Query v5, `gcTime` replaces v4's `cacheTime`. Use `gcTime` directly in defaults.
+---
+
+## 2026-05-27 - US-002 — api-client refatorado em hooks TanStack Query
+- Implemented:
+  - `src/lib/queries/scenarios.ts` (novo): `useScenarios({ enabled? })`, `useScenario(id)`, `useCreateScenario()`, `useUpdateScenario()`, `useDeleteScenario()`; exporta `SCENARIOS_QUERY_KEY` (`['scenarios']`) e `scenarioQueryKey(id)` (`['scenario', id]`). Mutations invalidam `['scenarios']` (onSuccess) e semeiam a chave de detalhe via `setQueryData`.
+  - `src/lib/queries/payments.ts` (novo): `usePayments(scenarioId)`, `useCreatePayment()`, `useUpdatePayment()`, `useDeletePayment()`; exporta `paymentsQueryKey(scenarioId)` (`['scenarios', scenarioId, 'payments']`). Mutations invalidam a lista de pagamentos do cenário.
+  - `src/lib/api-client.ts`: adicionadas funções plain `updateScenario(id, input)` (PATCH) e `deleteScenario(id)` (DELETE, soft-archive) + tipo `UpdateScenarioInput`. As funções plain continuam exportadas para reuso interno dos hooks.
+  - Refatorados para usar hooks (sem `useEffect(fetch)` para server-state): `historico-page.tsx` (useScenarios + useQueries p/ pagamentos), `historico-detalhe-page.tsx` (useScenario + usePayments; cache atualizado via setQueryData no save/delete), `new-scenario-dialog.tsx`, `payment-form-dialog.tsx`, `delete-payment-dialog.tsx`, `scenario-combobox.tsx` (lazy via flag `enabled`), `migrate-local-simulation-dialog.tsx`.
+  - Tests: `src/lib/queries/scenarios.test.tsx` e `payments.test.tsx` (novos) cobrindo fetch, gating por `enabled`/`id`, e invalidação de queryKeys. Atualizados `scenario-combobox.test.tsx`, `migrate-local-simulation-dialog.test.tsx`, `App.test.tsx`, `financiamento-page.test.tsx` para envolver render em `<QueryClientProvider>`.
+- Files changed:
+  - src/lib/api-client.ts
+  - src/lib/queries/scenarios.ts (new), src/lib/queries/payments.ts (new)
+  - src/lib/queries/scenarios.test.tsx (new), src/lib/queries/payments.test.tsx (new)
+  - src/features/historico/pages/historico-page.tsx, historico-detalhe-page.tsx
+  - src/features/historico/components/{new-scenario-dialog,payment-form-dialog,delete-payment-dialog,scenario-combobox,migrate-local-simulation-dialog}.tsx
+  - src/features/historico/components/{scenario-combobox,migrate-local-simulation-dialog}.test.tsx
+  - src/app/App.test.tsx
+  - src/features/simulator/pages/financiamento-page.test.tsx
+- Quality: `bun run typecheck`, `bun run lint` (só o warning pré-existente em site-header.tsx), `bun run test` (595 testes, 57 arquivos) — todos passam.
+- **Learnings for future iterations:**
+  - O `QueryClientProvider` de produção vive em `src/app/App.tsx` (acima do `BrowserRouter`), NÃO em main.tsx nem em AppRoutes. Qualquer teste que renderize `<AppRoutes/>`, `<AppShell/>` ou um componente do feature `historico` precisa envolver o render num `<QueryClientProvider client={new QueryClient(...)}>`, senão `useQueryClient` lança "No QueryClient set". Use `{ defaultOptions: { queries: { retry: false } } }` nos testes para falhar rápido.
+  - Convenção de queryKeys deste app: scenarios → `['scenarios']`; detalhe → `['scenario', id]`; pagamentos de um cenário → `['scenarios', scenarioId, 'payments']` (via helper `paymentsQueryKey`). Mantenha mutations invalidando essas chaves no `onSuccess`.
+  - Para listas dinâmicas (N cenários → N consultas de pagamentos) use `useQueries` chamando a função plain `listPayments` no `queryFn` (compartilha o mesmo `paymentsQueryKey` que `usePayments`), em vez de useEffect manual.
+  - `useScenarios` aceita `{ enabled }` para preservar o lazy-load do `ScenarioCombobox` (só busca após o primeiro open). Com cache do TanStack, abrir o dropdown várias vezes dispara o fetch só uma vez — o teste "does not refetch on subsequent opens" valida isso sem `vi`.
+  - `MigrateLocalSimulationDialog` agora usa `useCreateScenario()`; como ele é montado no `AppShell`, o teste `financiamento-page.test.tsx` (que não mocka api-client) passou a precisar do provider.
 ---

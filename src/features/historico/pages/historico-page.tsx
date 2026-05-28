@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 
 import { SectionCards } from "@/components/section-cards";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,52 +16,45 @@ import {
   type ScenarioWithPayments,
 } from "@/features/historico/components/scenarios-list";
 import { buildHistoricoKpis } from "@/features/historico/lib/build-historico-kpis";
-import { listPayments, listScenarios } from "@/lib/api-client";
-
-type Status = "loading" | "ready" | "error";
+import { listPayments, type PaymentApi } from "@/lib/api-client";
+import { paymentsQueryKey } from "@/lib/queries/payments";
+import {
+  SCENARIOS_QUERY_KEY,
+  useScenarios,
+} from "@/lib/queries/scenarios";
 
 export function HistoricoPage() {
-  const [items, setItems] = useState<ScenarioWithPayments[]>([]);
-  const [status, setStatus] = useState<Status>("loading");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const scenariosQuery = useScenarios();
+  const scenarios = scenariosQuery.data ?? [];
 
-  const fetchAll = useCallback(async () => {
-    setStatus("loading");
-    setErrorMessage(null);
-    try {
-      const scenarios = await listScenarios();
-      const withPayments = await Promise.all(
-        scenarios.map(async (scenario) => {
-          try {
-            const payments = await listPayments(scenario.id);
-            return { scenario, payments };
-          } catch {
-            return { scenario, payments: [] };
-          }
-        }),
-      );
-      setItems(withPayments);
-      setStatus("ready");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      setErrorMessage(
-        message.length > 0
-          ? message
-          : "Não foi possível carregar seus financiamentos. Tente novamente.",
-      );
-      setStatus("error");
-    }
-  }, []);
+  const paymentsResults = useQueries({
+    queries: scenarios.map((scenario) => ({
+      queryKey: paymentsQueryKey(scenario.id),
+      queryFn: () => listPayments(scenario.id).catch((): PaymentApi[] => []),
+    })),
+  });
 
-  useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
+  const allPaymentsLoaded =
+    scenarios.length === 0 ||
+    paymentsResults.every((q) => !q.isPending);
 
-  const handleCreated = useCallback(() => {
-    void fetchAll();
-  }, [fetchAll]);
+  const items: ScenarioWithPayments[] = scenarios.map((scenario, idx) => ({
+    scenario,
+    payments: paymentsResults[idx]?.data ?? [],
+  }));
+
+  const handleCreated = () => {
+    void qc.invalidateQueries({ queryKey: SCENARIOS_QUERY_KEY });
+  };
 
   const kpis = buildHistoricoKpis();
+  const isLoading = scenariosQuery.isPending || !allPaymentsLoaded;
+  const isError = scenariosQuery.isError;
+  const errorMessage =
+    scenariosQuery.error instanceof Error && scenariosQuery.error.message
+      ? scenariosQuery.error.message
+      : null;
 
   return (
     <>
@@ -85,7 +78,7 @@ export function HistoricoPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {status === "loading" ? (
+          {isLoading ? (
             <div
               data-testid="historico-loading"
               className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
@@ -94,7 +87,7 @@ export function HistoricoPage() {
               <Skeleton className="h-36 w-full" />
               <Skeleton className="h-36 w-full" />
             </div>
-          ) : status === "error" ? (
+          ) : isError ? (
             <Alert variant="destructive" data-testid="historico-error">
               <AlertTitle>Erro ao carregar</AlertTitle>
               <AlertDescription>

@@ -38,6 +38,11 @@ export interface CreateScenarioInput {
   startDate: string;
 }
 
+export interface UpdateScenarioInput {
+  name?: string;
+  archived?: boolean;
+}
+
 export type PaymentType = "parcela" | "amortizacao_extra" | "misto";
 export type AmortizationStrategy = "prazo" | "parcela";
 
@@ -117,6 +122,30 @@ export async function createScenario(
 export async function getScenario(id: string): Promise<ScenarioApi> {
   const body = await jsonFetch<{ scenario: ScenarioApi }>(
     `/api/scenarios/${encodeURIComponent(id)}`,
+  );
+  return body.scenario;
+}
+
+export async function updateScenario(
+  id: string,
+  input: UpdateScenarioInput,
+): Promise<ScenarioApi> {
+  const body = await jsonFetch<{ scenario: ScenarioApi }>(
+    `/api/scenarios/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+  return body.scenario;
+}
+
+export async function deleteScenario(id: string): Promise<ScenarioApi> {
+  const body = await jsonFetch<{ scenario: ScenarioApi }>(
+    `/api/scenarios/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
   );
   return body.scenario;
 }

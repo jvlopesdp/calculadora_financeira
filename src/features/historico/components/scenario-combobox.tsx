@@ -10,9 +10,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { listScenarios, type ScenarioApi } from "@/lib/api-client";
-
-type Status = "idle" | "loading" | "ready" | "error";
+import { useScenarios } from "@/lib/queries/scenarios";
+import type { ScenarioApi } from "@/lib/api-client";
 
 function displayName(scenario: ScenarioApi): string {
   return scenario.name && scenario.name.length > 0
@@ -25,30 +24,18 @@ export function ScenarioCombobox() {
   const { scenarioId } = useParams<{ scenarioId: string }>();
 
   const [open, setOpen] = useState(false);
-  const [status, setStatus] = useState<Status>("idle");
-  const [scenarios, setScenarios] = useState<ScenarioApi[]>([]);
+  const [hasOpened, setHasOpened] = useState(false);
+  const scenariosQuery = useScenarios({ enabled: hasOpened });
 
+  const scenarios = scenariosQuery.data ?? [];
   const currentScenario = scenarios.find((s) => s.id === scenarioId);
   const triggerLabel = currentScenario
     ? displayName(currentScenario)
     : "Selecionar cenário";
 
-  async function loadScenarios() {
-    setStatus("loading");
-    try {
-      const list = await listScenarios();
-      setScenarios(list);
-      setStatus("ready");
-    } catch {
-      setStatus("error");
-    }
-  }
-
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (next && status === "idle") {
-      void loadScenarios();
-    }
+    if (next && !hasOpened) setHasOpened(true);
   }
 
   function handleSelect(id: string) {
@@ -57,6 +44,9 @@ export function ScenarioCombobox() {
       navigate(`/historico/${id}`);
     }
   }
+
+  const isLoading = hasOpened && scenariosQuery.isPending;
+  const isError = scenariosQuery.isError;
 
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange}>
@@ -78,11 +68,11 @@ export function ScenarioCombobox() {
         align="end"
         className="max-h-[60vh] w-[260px] overflow-y-auto"
       >
-        {status === "loading" ? (
+        {isLoading ? (
           <DropdownMenuItem disabled data-testid="scenario-combobox-loading">
             Carregando…
           </DropdownMenuItem>
-        ) : status === "error" ? (
+        ) : isError ? (
           <DropdownMenuItem disabled data-testid="scenario-combobox-error">
             Erro ao carregar cenários
           </DropdownMenuItem>

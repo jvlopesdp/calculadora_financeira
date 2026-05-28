@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -118,19 +119,24 @@ function mockLoading() {
 }
 
 function renderDialog() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={["/financiamento"]}>
-      <Routes>
-        <Route
-          path="/financiamento"
-          element={<MigrateLocalSimulationDialog />}
-        />
-        <Route
-          path="/historico/:scenarioId"
-          element={<div>Historico detalhe page</div>}
-        />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={["/financiamento"]}>
+        <Routes>
+          <Route
+            path="/financiamento"
+            element={<MigrateLocalSimulationDialog />}
+          />
+          <Route
+            path="/historico/:scenarioId"
+            element={<div>Historico detalhe page</div>}
+          />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

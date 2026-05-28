@@ -18,7 +18,8 @@ import {
   readLegacySimulation,
   type LegacySimulation,
 } from "@/lib/local-simulation-migration";
-import { ApiError, createScenario } from "@/lib/api-client";
+import { ApiError } from "@/lib/api-client";
+import { useCreateScenario } from "@/lib/queries/scenarios";
 import { useCurrentUser } from "@/lib/use-current-user";
 
 type Status = "idle" | "importing" | "error";
@@ -35,6 +36,7 @@ type Status = "idle" | "importing" | "error";
  */
 export function MigrateLocalSimulationDialog() {
   const { user, isLoading } = useCurrentUser();
+  const createMutation = useCreateScenario();
   const navigate = useNavigate();
   const [legacy, setLegacy] = useState<LegacySimulation | null>(null);
   const [open, setOpen] = useState(false);
@@ -69,7 +71,9 @@ export function MigrateLocalSimulationDialog() {
     setStatus("importing");
     setErrorMessage(null);
     try {
-      const scenario = await createScenario(legacyToCreateInput(legacy));
+      const scenario = await createMutation.mutateAsync(
+        legacyToCreateInput(legacy),
+      );
       clearLegacySimulation();
       markMigrationDone();
       setOpen(false);
@@ -86,7 +90,7 @@ export function MigrateLocalSimulationDialog() {
       setErrorMessage(message);
       setStatus("error");
     }
-  }, [legacy, navigate]);
+  }, [legacy, navigate, createMutation]);
 
   if (!legacy) return null;
 
