@@ -1,5 +1,6 @@
 import {
   IconCalculator,
+  IconChartLine,
   IconHistory,
   IconInnerShadowTop,
   IconScale,
@@ -22,14 +23,17 @@ import { useSession } from "@/lib/queries/session";
 const baseNavMain: NavMainItem[] = [
   { title: "Financiamento", url: "/financiamento", icon: IconCalculator },
   { title: "Histórico", url: "/historico", icon: IconHistory },
+  { title: "Acompanhamento", url: "/acompanhamento", icon: IconChartLine },
   { title: "Alugar x Financiar", url: "/alugar-x-financiar", icon: IconScale },
 ];
+
+const protectedNavUrls = new Set(["/historico", "/acompanhamento"]);
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { user } = useSession();
   const navMain = user
     ? baseNavMain
-    : baseNavMain.filter((item) => item.url !== "/historico");
+    : baseNavMain.filter((item) => !protectedNavUrls.has(item.url));
 
   return (
     <Sidebar collapsible="offcanvas" {...props}>

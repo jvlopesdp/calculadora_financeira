@@ -12,6 +12,9 @@ export function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/historico")) {
     return "Histórico";
   }
+  if (pathname.startsWith("/acompanhamento")) {
+    return "Acompanhamento";
+  }
   if (pathname.startsWith("/alugar-x-financiar")) {
     return "Alugar x Financiar";
   }

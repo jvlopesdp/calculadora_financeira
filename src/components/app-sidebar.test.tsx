@@ -94,16 +94,18 @@ describe("AppSidebar", () => {
     expect(screen.getByText("Alugar x Financiar")).toBeInTheDocument();
   });
 
-  it("hides the Histórico item for anonymous users", () => {
+  it("hides the Histórico and Acompanhamento items for anonymous users", () => {
     setSession({ data: null, isPending: false });
     renderSidebar("/financiamento");
     expect(screen.queryByText("Histórico")).not.toBeInTheDocument();
+    expect(screen.queryByText("Acompanhamento")).not.toBeInTheDocument();
   });
 
-  it("shows the Histórico item for authenticated users", () => {
+  it("shows the Histórico and Acompanhamento items for authenticated users", () => {
     setSession(authedSession);
     renderSidebar("/financiamento");
     expect(screen.getByText("Histórico")).toBeInTheDocument();
+    expect(screen.getByText("Acompanhamento")).toBeInTheDocument();
   });
 
   it("does not render legacy navDocuments labels", () => {

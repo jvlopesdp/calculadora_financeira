@@ -19,6 +19,21 @@ export interface ScenarioApi {
   archived_at: number | null;
 }
 
+export interface TrackerPlanApi {
+  id: string;
+  user_id: string;
+  name: string;
+  property_value_cents: number;
+  down_payment_cents: number;
+  term_months: number;
+  annual_rate_bp: number;
+  modality: "PRICE" | "SAC";
+  start_date: string;
+  target_monthly_total_cents: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface PaymentApi {
   id: string;
   scenario_id: string;
@@ -199,6 +214,13 @@ export async function deletePayment(
     },
   );
   return body.payment;
+}
+
+export async function listTrackerPlans(): Promise<TrackerPlanApi[]> {
+  const body = await jsonFetch<{ plans: TrackerPlanApi[] }>(
+    "/api/tracker/plans",
+  );
+  return body.plans;
 }
 
 export interface SessionResponse {

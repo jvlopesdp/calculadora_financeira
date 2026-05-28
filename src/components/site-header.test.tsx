@@ -50,6 +50,7 @@ describe("getPageTitle", () => {
     ["/financiamento/qualquer-coisa", "Financiamento"],
     ["/historico", "Histórico"],
     ["/historico/abc", "Histórico"],
+    ["/acompanhamento", "Acompanhamento"],
     ["/alugar-x-financiar", "Alugar x Financiar"],
     ["/rota-desconhecida", "Calculadora Financeira"],
   ])("maps %s to %s", (path, expected) => {
