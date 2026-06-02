@@ -118,11 +118,14 @@ describe("AppRoutes", () => {
     ).toBeInTheDocument();
   });
 
-  it("redirects unauthenticated /historico to /login", () => {
+  it("shows auth modal for unauthenticated /historico without redirecting", () => {
     setSession({ data: null, isPending: false });
     renderAt("/historico");
     expect(
-      screen.getByRole("heading", { level: 3, name: /^entrar$/i }),
+      screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /entrar na minha conta/i }),
     ).toBeInTheDocument();
   });
 
