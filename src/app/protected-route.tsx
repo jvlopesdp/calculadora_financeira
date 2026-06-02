@@ -1,12 +1,12 @@
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 
+import { AuthRequiredModal } from "@/app/auth-required-modal";
 import { useSession } from "@/lib/queries/session";
 
 /**
- * Gate de rota: redireciona para /login se o usuário não estiver autenticado.
- * Enquanto a sessão carrega, exibe um spinner mínimo para evitar flicker.
- *
- * Usado como wrapper de rotas pai no react-router (`<Route element={<ProtectedRoute/>}>`).
+ * Gate de rota: exibe o conteúdo com um modal de autenticação sobreposto
+ * quando o usuário não está autenticado. O fundo permanece visível e fosco
+ * (efeito do overlay do Dialog). Enquanto a sessão carrega, exibe um spinner.
  */
 export function ProtectedRoute() {
   const { user, isPending } = useSession();
@@ -27,7 +27,10 @@ export function ProtectedRoute() {
   if (!user) {
     const next = `${location.pathname}${location.search}`;
     return (
-      <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
+      <>
+        <Outlet />
+        <AuthRequiredModal next={next} />
+      </>
     );
   }
 

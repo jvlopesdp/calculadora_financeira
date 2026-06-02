@@ -18,7 +18,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useSession } from "@/lib/queries/session";
 
 const baseNavMain: NavMainItem[] = [
   { title: "Financiamento", url: "/financiamento", icon: IconCalculator },
@@ -27,14 +26,7 @@ const baseNavMain: NavMainItem[] = [
   { title: "Alugar x Financiar", url: "/alugar-x-financiar", icon: IconScale },
 ];
 
-const protectedNavUrls = new Set(["/historico", "/acompanhamento"]);
-
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const { user } = useSession();
-  const navMain = user
-    ? baseNavMain
-    : baseNavMain.filter((item) => !protectedNavUrls.has(item.url));
-
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -55,7 +47,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={navMain} />
+        <NavMain items={baseNavMain} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />
