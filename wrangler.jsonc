@@ -34,7 +34,7 @@
   "triggers": {
     // Weekly verification-token cleanup (Sunday 04:00 UTC). See the `scheduled`
     // handler in src/server/index.ts and "Limpeza periódica" in docs/auth-diagnosis.md.
-    "crons": ["0 4 * * 0"]
+    "crons": ["0 4 * * SUN"]
   },
   "routes": [
     {
