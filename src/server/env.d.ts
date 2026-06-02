@@ -22,4 +22,8 @@ export interface Env {
   RESEND_API_KEY?: string;
   /** Cloudflare Turnstile secret key for server-side siteverify. Empty/missing → bypass (dev). */
   TURNSTILE_SECRET_KEY?: string;
+  /** Google OAuth client ID. Set together with GOOGLE_CLIENT_SECRET to enable social login. */
+  GOOGLE_CLIENT_ID?: string;
+  /** Google OAuth client secret. Set together with GOOGLE_CLIENT_ID to enable social login. */
+  GOOGLE_CLIENT_SECRET?: string;
 }

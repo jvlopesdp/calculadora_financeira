@@ -12,8 +12,14 @@ vi.mock("../auth", () => ({
 
 const mockedCreateAuth = vi.mocked(createAuth);
 
+interface DraftRow {
+  payload: string;
+  updated_at: number;
+}
+
 interface FakeDB {
   rows: ScenarioRow[];
+  drafts: Map<string, DraftRow>;
   db: D1Database;
 }
 
@@ -24,6 +30,7 @@ interface FakeDB {
  */
 function createFakeDB(initialRows: ScenarioRow[] = []): FakeDB {
   const rows: ScenarioRow[] = [...initialRows];
+  const drafts = new Map<string, DraftRow>();
 
   const db = {
     prepare(sql: string) {
@@ -99,6 +106,15 @@ function createFakeDB(initialRows: ScenarioRow[] = []): FakeDB {
             }
             return { success: true, meta: {} };
           }
+          if (sql.startsWith('insert into "scenario_drafts"')) {
+            const [user_id, payload, updated_at] = args as [
+              string,
+              string,
+              number,
+            ];
+            drafts.set(user_id, { payload, updated_at });
+            return { success: true, meta: {} };
+          }
           throw new Error(`Unhandled SQL (run): ${sql}`);
         },
         async first<T = unknown>(): Promise<T | null> {
@@ -112,6 +128,11 @@ function createFakeDB(initialRows: ScenarioRow[] = []): FakeDB {
               (r) => r.id === id && r.user_id === user_id,
             );
             return (row ?? null) as T | null;
+          }
+          if (sql.startsWith('select "payload" from "scenario_drafts"')) {
+            const [user_id] = args as [string];
+            const draft = drafts.get(user_id);
+            return (draft ? { payload: draft.payload } : null) as T | null;
           }
           throw new Error(`Unhandled SQL (first): ${sql}`);
         },
@@ -145,6 +166,7 @@ function createFakeDB(initialRows: ScenarioRow[] = []): FakeDB {
 
   return {
     rows,
+    drafts,
     db: db as unknown as D1Database,
   };
 }
@@ -611,6 +633,160 @@ describe("scenarios router", () => {
 
       expect(res.status).toBe(404);
       expect(rows[0]?.archived_at).toBeNull();
+    });
+  });
+
+  describe("draft endpoints", () => {
+    const draftPayload = { propertyValue: 500_000, termMonths: 360 };
+
+    it("returns 401 without a session", async () => {
+      mockedCreateAuth.mockReturnValue({
+        api: { getSession: async () => null },
+      } as unknown as ReturnType<typeof createAuth>);
+
+      const { db } = createFakeDB();
+      const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+      app.route("/api/scenarios", scenariosRouter);
+
+      const res = await app.request(
+        "/api/scenarios/draft",
+        { method: "GET" },
+        envWith(db),
+      );
+
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
+    });
+
+    it("GET returns { draft: null } when the user has no draft", async () => {
+      const { db } = createFakeDB();
+      const { app } = buildApp("user-A");
+
+      const res = await app.request(
+        "/api/scenarios/draft",
+        { method: "GET", headers: { cookie } },
+        envWith(db),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ draft: null });
+    });
+
+    it("PUT creates the draft and persists the payload", async () => {
+      const { db, drafts } = createFakeDB();
+      const { app, fakeUser } = buildApp("user-A");
+
+      const res = await app.request(
+        "/api/scenarios/draft",
+        {
+          method: "PUT",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify(draftPayload),
+        },
+        envWith(db),
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        draft: typeof draftPayload;
+        updated_at: number;
+      };
+      expect(body.draft).toEqual(draftPayload);
+      expect(typeof body.updated_at).toBe("number");
+      expect(drafts.get(fakeUser.id)?.payload).toBe(
+        JSON.stringify(draftPayload),
+      );
+    });
+
+    it("PUT upserts the same row for the same user (no duplicates)", async () => {
+      const { db, drafts } = createFakeDB();
+      const { app, fakeUser } = buildApp("user-A");
+
+      await app.request(
+        "/api/scenarios/draft",
+        {
+          method: "PUT",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify(draftPayload),
+        },
+        envWith(db),
+      );
+
+      const updated = { propertyValue: 750_000, termMonths: 240 };
+      const res = await app.request(
+        "/api/scenarios/draft",
+        {
+          method: "PUT",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify(updated),
+        },
+        envWith(db),
+      );
+
+      expect(res.status).toBe(200);
+      expect(drafts.size).toBe(1);
+      expect(drafts.get(fakeUser.id)?.payload).toBe(JSON.stringify(updated));
+    });
+
+    it("GET returns the payload saved by a prior PUT", async () => {
+      const { db } = createFakeDB();
+      const { app } = buildApp("user-A");
+
+      await app.request(
+        "/api/scenarios/draft",
+        {
+          method: "PUT",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify(draftPayload),
+        },
+        envWith(db),
+      );
+
+      const res = await app.request(
+        "/api/scenarios/draft",
+        { method: "GET", headers: { cookie } },
+        envWith(db),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ draft: draftPayload });
+    });
+
+    it("PUT rejects a non-object payload with 400", async () => {
+      const { db } = createFakeDB();
+      const { app } = buildApp("user-A");
+
+      const res = await app.request(
+        "/api/scenarios/draft",
+        {
+          method: "PUT",
+          headers: { cookie, "content-type": "application/json" },
+          body: JSON.stringify([1, 2, 3]),
+        },
+        envWith(db),
+      );
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("validation");
+    });
+
+    it("PUT rejects malformed JSON with 400", async () => {
+      const { db } = createFakeDB();
+      const { app } = buildApp("user-A");
+
+      const res = await app.request(
+        "/api/scenarios/draft",
+        {
+          method: "PUT",
+          headers: { cookie, "content-type": "application/json" },
+          body: "{not json",
+        },
+        envWith(db),
+      );
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "invalid_json" });
     });
   });
 });

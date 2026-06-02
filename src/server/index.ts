@@ -5,6 +5,8 @@ import type { Env } from "./env";
 import { requireUser, type AuthVariables } from "./middleware/require-user";
 import paymentsRouter from "./routes/payments";
 import scenariosRouter from "./routes/scenarios";
+import trackerEntriesRouter from "./routes/tracker-entries";
+import trackerPlansRouter from "./routes/tracker-plans";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -40,6 +42,8 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
 // so the parent middleware does not double-run on every request.
 app.route("/api/scenarios/:scenarioId/payments", paymentsRouter);
 app.route("/api/scenarios", scenariosRouter);
+app.route("/api/tracker/plans/:planId/entries", trackerEntriesRouter);
+app.route("/api/tracker/plans", trackerPlansRouter);
 
 // Every /api/* route registered below this line requires a valid session.
 app.use("/api/*", requireUser);
@@ -55,4 +59,35 @@ app.all("*", async (c) => {
   return c.env.ASSETS.fetch(new Request(indexUrl.toString(), c.req.raw));
 });
 
-export default app;
+// Keep expired verification tokens for 30 days after expiry before purging,
+// so a recently-expired token is still inspectable when debugging auth issues.
+const VERIFICATION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Weekly cron (see `triggers.crons` in wrangler.jsonc): drops verification
+ * tokens that expired more than {@link VERIFICATION_RETENTION_MS} ago so the
+ * Better Auth `verification` table does not grow without bound.
+ */
+export async function scheduled(
+  _event: ScheduledController,
+  env: Env,
+  _ctx: ExecutionContext,
+): Promise<void> {
+  const cutoff = Date.now() - VERIFICATION_RETENTION_MS;
+  const result = await env.DB.prepare(
+    'delete from "verification" where "expiresAt" < ?',
+  )
+    .bind(cutoff)
+    .run();
+  console.log({
+    event: "verification_cleanup",
+    removed: result.meta.changes ?? 0,
+  });
+}
+
+export { app };
+
+export default {
+  fetch: app.fetch,
+  scheduled,
+} satisfies ExportedHandler<Env>;

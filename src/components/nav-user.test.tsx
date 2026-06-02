@@ -15,13 +15,11 @@ import { NavUser } from "@/components/nav-user";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
 const useSessionMock = vi.fn();
-const signOutMock = vi.fn();
+const signOutMutateMock = vi.fn();
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: {
-    useSession: () => useSessionMock(),
-    signOut: (...args: unknown[]) => signOutMock(...args),
-  },
+vi.mock("@/lib/queries/session", () => ({
+  useSession: () => useSessionMock(),
+  useSignOut: () => ({ mutate: signOutMutateMock }),
 }));
 
 // Radix DropdownMenu relies on pointer-capture APIs and portals that are
@@ -76,14 +74,15 @@ function stubMatchMedia() {
 }
 
 function setSession(value: {
-  data: unknown;
+  data: { user?: unknown; session?: unknown } | null;
   isPending: boolean;
-  error?: Error | null;
+  isError?: boolean;
 }) {
   (useSessionMock as Mock).mockReturnValue({
-    data: value.data,
+    user: value.data?.user ?? null,
+    session: value.data?.session ?? null,
     isPending: value.isPending,
-    error: value.error ?? null,
+    isError: value.isError ?? false,
   });
 }
 
@@ -126,7 +125,7 @@ describe("NavUser", () => {
   beforeEach(() => {
     stubMatchMedia();
     useSessionMock.mockReset();
-    signOutMock.mockReset();
+    signOutMutateMock.mockReset();
   });
 
   it("renders an 'Entrar' button when anonymous and navigates to /login on click", () => {
@@ -168,13 +167,12 @@ describe("NavUser", () => {
     expect(screen.getAllByText("user@example.com").length).toBeGreaterThan(0);
   });
 
-  it("calls authClient.signOut and navigates to /login on success", async () => {
+  it("calls the sign-out mutation and navigates to /login on success", async () => {
     setSession(authedSession);
 
-    (signOutMock as MockedFunction<typeof signOutMock>).mockImplementation(
-      async (opts: { fetchOptions?: { onSuccess?: () => void } } = {}) => {
-        opts.fetchOptions?.onSuccess?.();
-        return { data: { success: true }, error: null };
+    (signOutMutateMock as MockedFunction<typeof signOutMutateMock>).mockImplementation(
+      (_variables: unknown, opts: { onSuccess?: () => void } = {}) => {
+        opts.onSuccess?.();
       },
     );
 
@@ -182,12 +180,11 @@ describe("NavUser", () => {
 
     fireEvent.click(screen.getByRole("menuitem", { name: /sair/i }));
 
-    expect(signOutMock).toHaveBeenCalledTimes(1);
-    const callArg = signOutMock.mock.calls[0]?.[0] as
-      | { fetchOptions?: { onSuccess?: () => void } }
+    expect(signOutMutateMock).toHaveBeenCalledTimes(1);
+    const onSuccess = signOutMutateMock.mock.calls[0]?.[1]?.onSuccess as
+      | (() => void)
       | undefined;
-    expect(callArg).toBeDefined();
-    expect(typeof callArg?.fetchOptions?.onSuccess).toBe("function");
+    expect(typeof onSuccess).toBe("function");
 
     expect(await screen.findByText("login page")).toBeInTheDocument();
   });

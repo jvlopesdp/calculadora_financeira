@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -19,8 +20,8 @@ import { ApiError, type ScenarioApi } from "@/lib/api-client";
 const useSessionMock = vi.fn();
 const createScenarioMock = vi.fn();
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: { useSession: () => useSessionMock() },
+vi.mock("@/lib/queries/session", () => ({
+  useSession: () => useSessionMock(),
 }));
 
 vi.mock("@/lib/api-client", async () => {
@@ -85,52 +86,57 @@ function setLegacyData() {
 
 function mockAuthed() {
   useSessionMock.mockReturnValue({
-    data: {
-      user: {
-        id: "user-1",
-        email: "joao@exemplo.com",
-        name: "João",
-        emailVerified: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      session: {},
+    user: {
+      id: "user-1",
+      email: "joao@exemplo.com",
+      name: "João",
+      emailVerified: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     },
+    session: {},
     isPending: false,
-    error: null,
+    isError: false,
   });
 }
 
 function mockAnonymous() {
   useSessionMock.mockReturnValue({
-    data: null,
+    user: null,
+    session: null,
     isPending: false,
-    error: null,
+    isError: false,
   });
 }
 
 function mockLoading() {
   useSessionMock.mockReturnValue({
-    data: null,
+    user: null,
+    session: null,
     isPending: true,
-    error: null,
+    isError: false,
   });
 }
 
 function renderDialog() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={["/financiamento"]}>
-      <Routes>
-        <Route
-          path="/financiamento"
-          element={<MigrateLocalSimulationDialog />}
-        />
-        <Route
-          path="/historico/:scenarioId"
-          element={<div>Historico detalhe page</div>}
-        />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={["/financiamento"]}>
+        <Routes>
+          <Route
+            path="/financiamento"
+            element={<MigrateLocalSimulationDialog />}
+          />
+          <Route
+            path="/historico/:scenarioId"
+            element={<div>Historico detalhe page</div>}
+          />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

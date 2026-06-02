@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import app from "./index";
+import { app } from "./index";
 import { createAuth } from "./auth";
 import type { Env } from "./env";
 

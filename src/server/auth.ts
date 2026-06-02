@@ -29,6 +29,26 @@ function extractRemoteIp(headers: Headers | undefined): string | undefined {
 }
 
 /**
+ * Pure function — returns the `socialProviders` block for Better Auth when both
+ * Google secrets are present, or an empty object otherwise. Extracted so it can
+ * be unit-tested without instantiating betterAuth (which fires a background D1
+ * init promise that causes unhandled rejections in tests with a fake DB).
+ */
+export function googleSocialProvider(env: Pick<Env, "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET">) {
+  if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+    return {
+      socialProviders: {
+        google: {
+          clientId: env.GOOGLE_CLIENT_ID,
+          clientSecret: env.GOOGLE_CLIENT_SECRET,
+        },
+      },
+    };
+  }
+  return {};
+}
+
+/**
  * Build a Better Auth instance bound to the current request's environment.
  * Created per-request because each Worker request carries its own D1 binding
  * and secret values (no module-level singletons in Cloudflare Workers).
@@ -68,6 +88,7 @@ export function createAuth(env: Env) {
         );
       },
     },
+    ...googleSocialProvider(env),
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (!ctx.path) return;

@@ -1,5 +1,6 @@
 import {
   IconCalculator,
+  IconChartLine,
   IconHistory,
   IconInnerShadowTop,
   IconScale,
@@ -17,20 +18,15 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useCurrentUser } from "@/lib/use-current-user";
 
 const baseNavMain: NavMainItem[] = [
   { title: "Financiamento", url: "/financiamento", icon: IconCalculator },
   { title: "Histórico", url: "/historico", icon: IconHistory },
+  { title: "Acompanhamento", url: "/acompanhamento", icon: IconChartLine },
   { title: "Alugar x Financiar", url: "/alugar-x-financiar", icon: IconScale },
 ];
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const { user } = useCurrentUser();
-  const navMain = user
-    ? baseNavMain
-    : baseNavMain.filter((item) => item.url !== "/historico");
-
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -51,7 +47,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={navMain} />
+        <NavMain items={baseNavMain} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />

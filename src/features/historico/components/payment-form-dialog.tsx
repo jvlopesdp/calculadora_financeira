@@ -29,12 +29,8 @@ import {
   AMORTIZATION_STRATEGIES,
   type PaymentFormValues,
 } from "@/features/historico/schemas/payment";
-import {
-  ApiError,
-  createPayment,
-  updatePayment,
-  type PaymentApi,
-} from "@/lib/api-client";
+import { ApiError, type PaymentApi } from "@/lib/api-client";
+import { useCreatePayment, useUpdatePayment } from "@/lib/queries/payments";
 
 type Mode = "create" | "edit";
 
@@ -103,8 +99,10 @@ export function PaymentFormDialog({
   onSaved,
 }: PaymentFormDialogProps) {
   const mode: Mode = payment ? "edit" : "create";
+  const createMutation = useCreatePayment();
+  const updateMutation = useUpdatePayment();
   const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const submitting = createMutation.isPending || updateMutation.isPending;
 
   const form = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
@@ -131,7 +129,6 @@ export function PaymentFormDialog({
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
-    setSubmitting(true);
     try {
       const trimmedNotes = (values.notes ?? "").trim();
       const payloadBase = {
@@ -143,13 +140,20 @@ export function PaymentFormDialog({
       };
       const saved =
         mode === "create"
-          ? await createPayment(scenarioId, {
-              ...payloadBase,
-              ...(trimmedNotes.length > 0 ? { notes: trimmedNotes } : {}),
+          ? await createMutation.mutateAsync({
+              scenarioId,
+              input: {
+                ...payloadBase,
+                ...(trimmedNotes.length > 0 ? { notes: trimmedNotes } : {}),
+              },
             })
-          : await updatePayment(scenarioId, payment!.id, {
-              ...payloadBase,
-              notes: trimmedNotes.length > 0 ? trimmedNotes : null,
+          : await updateMutation.mutateAsync({
+              scenarioId,
+              paymentId: payment!.id,
+              input: {
+                ...payloadBase,
+                notes: trimmedNotes.length > 0 ? trimmedNotes : null,
+              },
             });
       onSaved(saved);
       onOpenChange(false);
@@ -170,8 +174,6 @@ export function PaymentFormDialog({
             : "Erro de rede. Verifique sua conexão e tente novamente.",
         );
       }
-    } finally {
-      setSubmitting(false);
     }
   });
 

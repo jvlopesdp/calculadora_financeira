@@ -19,6 +19,9 @@
   "vars": {
     "EMAIL_FROM": "no-reply@mail.visagismeai.com",
     "ENVIRONMENT": "production"
+    // Secrets (NOT plaintext vars) — set via `wrangler secret put <NAME>`:
+    //   BETTER_AUTH_SECRET, RESEND_API_KEY, TURNSTILE_SECRET_KEY
+    //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET  (enable Google social login; see docs/google-oauth.md)
   },
   "d1_databases": [
     {
@@ -28,6 +31,11 @@
       "migrations_dir": "migrations"
     }
   ],
+  "triggers": {
+    // Weekly verification-token cleanup (Sunday 04:00 UTC). See the `scheduled`
+    // handler in src/server/index.ts and "Limpeza periódica" in docs/auth-diagnosis.md.
+    "crons": ["0 4 * * 0"]
+  },
   "routes": [
     {
       "pattern": "calculadorafinanceira.app",

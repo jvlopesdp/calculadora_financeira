@@ -7,7 +7,7 @@ Top-level components. Conventions for the dashboard-01 shell live here.
 - `app-sidebar.tsx`, `site-header.tsx`, `nav-main.tsx`, `nav-user.tsx` form the shadcn `dashboard-01` shell, rendered by `src/app/app-shell.tsx`.
 - Navigation links use `react-router-dom` (`<NavLink>`, `<Link>`, `useNavigate`) — NOT `next/link` or `usePathname`. When copying shadcn examples that import from `next/*`, swap them out before pasting.
 - The sidebar primitive (`ui/sidebar.tsx`) ships its own `SidebarProvider`, `useSidebar` hook, `--sidebar-width` CSS var, and `Ctrl/Cmd+B` keyboard toggle. `useIsMobile()` from `src/lib/use-mobile.ts` decides between the persistent rail and the Sheet-backed drawer.
-- `NavUser` reads `useCurrentUser()`: anonymous → "Entrar" button → `/login`; authed → avatar + dropdown with sign-out (calls `authClient.signOut()` then redirects to `/login`).
+- `NavUser` reads `useSession()` (from `@/lib/queries/session`): anonymous → "Entrar" button → `/login`; authed → avatar + dropdown with sign-out (calls the `useSignOut()` mutation — `POST /api/auth/sign-out`, invalidates `['session']` — then redirects to `/login`).
 - `SiteHeader` renders the current page title as the page `h1`, derived from the route by `getPageTitle(pathname)` (exported so tests can verify the routing table directly). When adding a new top-level route under `<AppShell>`, extend `getPageTitle` and the parameterised `site-header.test.tsx` table.
 
 ## Testing patterns
@@ -15,7 +15,7 @@ Top-level components. Conventions for the dashboard-01 shell live here.
 - **Radix portal/popper components (DropdownMenu, Popover, Select, etc.) in jsdom**: mock the `@/components/ui/<name>` wrapper module with passthrough components and replace `Item` with a plain `<button role="menuitem" onClick={() => onSelect?.()}>`. This avoids the pointer-capture / portal stubbing dance and lets `fireEvent.click(screen.getByRole("menuitem", {name}))` exercise the handler deterministically. See `nav-user.test.tsx` for the canonical pattern.
 - **Always use `fireEvent` from `@testing-library/react`**, never `@testing-library/user-event` (not a project dep).
 - Tests that render anything under `<SidebarProvider>` need the `window.matchMedia` stub — copy the helper from `app-sidebar.test.tsx`.
-- `AppSidebar` filters the nav items by `useCurrentUser()`: the `Histórico` item is hidden for anonymous users. The upstream `dashboard-01` extra sections (`navDocuments`, `navSecondary`) are intentionally removed — only `NavMain` is rendered.
+- `AppSidebar` filters the nav items by `useSession()`: the `Histórico` item is hidden for anonymous users. The upstream `dashboard-01` extra sections (`navDocuments`, `navSecondary`) are intentionally removed — only `NavMain` is rendered.
 
 ## Auth routes bypass the shell
 
@@ -48,6 +48,9 @@ Before adding a new shadcn block, grep `ui/` — most common primitives are alre
 - Series `color` is a CSS token (`"var(--chart-1)"` … `"var(--chart-5)"`) so light/dark themes work via tokens in `src/index.css`.
 - `ChartPoint` is intentionally minimal (`{ month: number }`); concrete data types from `src/features/simulator/components/charts/*-data.ts` flow through as structural subtypes. Keep the engine calls in the `*-data.ts` builders — `ChartAreaInteractive` is pure presentation.
 - Stacked area composition: set `kind: "area"` + give two series the same `stackId`. The default `fillOpacity` is `0.5`.
+- Per-series line styling: `SeriesData` accepts optional `strokeDasharray` (e.g. `"6 4"` for a dashed line) and `strokeWidth` (defaults to 2). Used to distinguish overlapping curves (e.g. the tracker's solid Realizado / dashed Normal / thin Meta).
+- Reference markers: a `ChartView.markers?: ChartMarker[]` (`{ month, value, label, color }`) renders a `ReferenceDot` + label on top of the series (e.g. an early-payoff "Quitado em mês N" point). Markers are sliced by the active time-range like the data; the canvas exposes `data-marker-count` for tests.
+- `notice?: React.ReactNode` prop renders an arbitrary banner inside the card, above the chart body (e.g. the tracker's "meta inválida" warning when a series can't be drawn).
 
 **Don't reintroduce per-chart components.** The old `OutstandingBalanceChart`, `NetWorthChart`, `InstallmentCompositionChart`, `InterestSavingsChart` were collapsed into this one shell in US-023. New chart needs become a `ChartView` entry, not a new file under `features/simulator/components/charts/`.
 

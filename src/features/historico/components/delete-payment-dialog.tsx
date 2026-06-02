@@ -10,8 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ApiError, deletePayment, type PaymentApi } from "@/lib/api-client";
+import { ApiError, type PaymentApi } from "@/lib/api-client";
 import { formatBRL } from "@/lib/formatters/currency";
+import { useDeletePayment } from "@/lib/queries/payments";
 
 export interface DeletePaymentDialogProps {
   open: boolean;
@@ -28,15 +29,18 @@ export function DeletePaymentDialog({
   payment,
   onDeleted,
 }: DeletePaymentDialogProps) {
-  const [submitting, setSubmitting] = useState(false);
+  const deleteMutation = useDeletePayment();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const submitting = deleteMutation.isPending;
 
   async function handleConfirm() {
     if (!payment) return;
-    setSubmitting(true);
     setErrorMessage(null);
     try {
-      const deleted = await deletePayment(scenarioId, payment.id);
+      const deleted = await deleteMutation.mutateAsync({
+        scenarioId,
+        paymentId: payment.id,
+      });
       onDeleted(deleted);
       onOpenChange(false);
     } catch (err) {
@@ -54,8 +58,6 @@ export function DeletePaymentDialog({
             : "Erro ao excluir pagamento. Tente novamente.",
         );
       }
-    } finally {
-      setSubmitting(false);
     }
   }
 

@@ -6,6 +6,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceDot,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -32,6 +33,18 @@ export type SeriesData = {
   color: string;
   stackId?: string;
   fillOpacity?: number;
+  /** Dash pattern for the line (e.g. "6 4"); solid when omitted. */
+  strokeDasharray?: string;
+  /** Line thickness; defaults to 2. */
+  strokeWidth?: number;
+};
+
+/** A highlighted point drawn on top of the series (e.g. an early-payoff marker). */
+export type ChartMarker = {
+  month: number;
+  value: number;
+  label: string;
+  color: string;
 };
 
 export type ChartView = {
@@ -41,6 +54,7 @@ export type ChartView = {
   kind?: "line" | "area";
   data: ChartPoint[];
   series: SeriesData[];
+  markers?: ChartMarker[];
   emptyState?: string;
 };
 
@@ -60,6 +74,8 @@ export interface ChartAreaInteractiveProps {
   defaultView?: string;
   defaultRange?: TimeRangeKey;
   className?: string;
+  /** Optional banner rendered inside the card, above the chart body. */
+  notice?: React.ReactNode;
 }
 
 interface TooltipPayloadEntry {
@@ -146,6 +162,13 @@ function ChartBody({ view, range }: ChartBodyProps) {
     [view.data, range],
   );
 
+  const visibleMarkers = React.useMemo(() => {
+    const markers = view.markers ?? [];
+    if (markers.length === 0 || filtered.length === 0) return [];
+    const lastMonth = filtered[filtered.length - 1].month;
+    return markers.filter((marker) => marker.month <= lastMonth);
+  }, [view.markers, filtered]);
+
   if (filtered.length === 0) {
     return (
       <p
@@ -165,6 +188,7 @@ function ChartBody({ view, range }: ChartBodyProps) {
       data-view={view.id}
       data-range={range}
       data-point-count={filtered.length}
+      data-marker-count={visibleMarkers.length}
       className="h-72 w-full"
     >
       <ResponsiveContainer width="100%" height="100%">
@@ -194,9 +218,29 @@ function ChartBody({ view, range }: ChartBodyProps) {
                 name={series.name}
                 stackId={series.stackId}
                 stroke={series.color}
+                strokeDasharray={series.strokeDasharray}
+                strokeWidth={series.strokeWidth ?? 2}
                 fill={series.color}
                 fillOpacity={series.fillOpacity ?? 0.5}
                 isAnimationActive={false}
+              />
+            ))}
+            {visibleMarkers.map((marker) => (
+              <ReferenceDot
+                key={`${marker.month}-${marker.color}`}
+                x={marker.month}
+                y={marker.value}
+                r={5}
+                fill={marker.color}
+                stroke="var(--background)"
+                strokeWidth={2}
+                isFront
+                label={{
+                  value: marker.label,
+                  position: "top",
+                  fontSize: 11,
+                  fill: marker.color,
+                }}
               />
             ))}
           </AreaChart>
@@ -225,9 +269,28 @@ function ChartBody({ view, range }: ChartBodyProps) {
                 dataKey={series.key}
                 name={series.name}
                 stroke={series.color}
-                strokeWidth={2}
+                strokeDasharray={series.strokeDasharray}
+                strokeWidth={series.strokeWidth ?? 2}
                 dot={false}
                 isAnimationActive={false}
+              />
+            ))}
+            {visibleMarkers.map((marker) => (
+              <ReferenceDot
+                key={`${marker.month}-${marker.color}`}
+                x={marker.month}
+                y={marker.value}
+                r={5}
+                fill={marker.color}
+                stroke="var(--background)"
+                strokeWidth={2}
+                isFront
+                label={{
+                  value: marker.label,
+                  position: "top",
+                  fontSize: 11,
+                  fill: marker.color,
+                }}
               />
             ))}
           </LineChart>
@@ -244,6 +307,7 @@ export function ChartAreaInteractive({
   defaultView,
   defaultRange = "all",
   className,
+  notice,
 }: ChartAreaInteractiveProps) {
   const firstViewId = views[0]?.id ?? "";
   const [activeView, setActiveView] = React.useState<string>(
@@ -304,6 +368,7 @@ export function ChartAreaInteractive({
             </TabsList>
           </Tabs>
         ) : null}
+        {notice ?? null}
         {view ? (
           <ChartBody view={view} range={range} />
         ) : (

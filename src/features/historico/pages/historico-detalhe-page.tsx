@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   ChartAreaInteractive,
@@ -34,22 +35,19 @@ import {
   rowToFinancingScenario,
 } from "@/features/historico/lib/scenario-state";
 import type { PaymentFormValues } from "@/features/historico/schemas/payment";
+import { ApiError, type PaymentApi } from "@/lib/api-client";
 import {
-  ApiError,
-  getScenario,
-  listPayments,
-  type PaymentApi,
-  type ScenarioApi,
-} from "@/lib/api-client";
-
-type Status = "loading" | "ready" | "error" | "not-found";
+  paymentsQueryKey,
+  usePayments,
+} from "@/lib/queries/payments";
+import { useScenario } from "@/lib/queries/scenarios";
 
 export function HistoricoDetalhePage() {
   const { scenarioId } = useParams<{ scenarioId: string }>();
-  const [scenario, setScenario] = useState<ScenarioApi | null>(null);
-  const [payments, setPayments] = useState<PaymentApi[]>([]);
-  const [status, setStatus] = useState<Status>("loading");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  const scenarioQuery = useScenario(scenarioId);
+  const paymentsQuery = usePayments(scenarioId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] =
@@ -57,36 +55,24 @@ export function HistoricoDetalhePage() {
   const [editing, setEditing] = useState<PaymentApi | null>(null);
   const [deleting, setDeleting] = useState<PaymentApi | null>(null);
 
-  const fetchAll = useCallback(async () => {
-    if (!scenarioId) return;
-    setStatus("loading");
-    setErrorMessage(null);
-    try {
-      const [sc, ps] = await Promise.all([
-        getScenario(scenarioId),
-        listPayments(scenarioId),
-      ]);
-      setScenario(sc);
-      setPayments(ps);
-      setStatus("ready");
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        setStatus("not-found");
-        return;
-      }
-      const message = err instanceof Error ? err.message : "";
-      setErrorMessage(
-        message.length > 0
-          ? message
-          : "Não foi possível carregar o cenário. Tente novamente.",
-      );
-      setStatus("error");
-    }
-  }, [scenarioId]);
+  const isNotFound =
+    scenarioQuery.error instanceof ApiError &&
+    scenarioQuery.error.status === 404;
+  const isLoading =
+    !!scenarioId && (scenarioQuery.isPending || paymentsQuery.isPending);
+  const isError =
+    (scenarioQuery.isError && !isNotFound) || paymentsQuery.isError;
+  const errorMessage = useMemo(() => {
+    const err = scenarioQuery.error ?? paymentsQuery.error;
+    if (err instanceof Error && err.message.length > 0) return err.message;
+    return null;
+  }, [scenarioQuery.error, paymentsQuery.error]);
 
-  useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
+  const scenario = scenarioQuery.data ?? null;
+  const payments = useMemo(
+    () => paymentsQuery.data ?? [],
+    [paymentsQuery.data],
+  );
 
   const state = useMemo(
     () => (scenario ? computeScenarioState(scenario, payments) : null),
@@ -151,23 +137,34 @@ export function HistoricoDetalhePage() {
     ];
   }, [scenario, state]);
 
-  const handlePaymentSaved = useCallback((saved: PaymentApi) => {
-    setPayments((current) => {
-      const idx = current.findIndex((p) => p.id === saved.id);
-      if (idx === -1) {
-        return [...current, saved].sort((a, b) =>
-          a.reference_month.localeCompare(b.reference_month),
-        );
-      }
-      const next = [...current];
-      next[idx] = saved;
-      return next;
-    });
-  }, []);
+  const handlePaymentSaved = useCallback(
+    (saved: PaymentApi) => {
+      if (!scenarioId) return;
+      qc.setQueryData<PaymentApi[]>(paymentsQueryKey(scenarioId), (current) => {
+        const list = current ?? [];
+        const idx = list.findIndex((p) => p.id === saved.id);
+        if (idx === -1) {
+          return [...list, saved].sort((a, b) =>
+            a.reference_month.localeCompare(b.reference_month),
+          );
+        }
+        const next = [...list];
+        next[idx] = saved;
+        return next;
+      });
+    },
+    [qc, scenarioId],
+  );
 
-  const handlePaymentDeleted = useCallback((deleted: PaymentApi) => {
-    setPayments((current) => current.filter((p) => p.id !== deleted.id));
-  }, []);
+  const handlePaymentDeleted = useCallback(
+    (deleted: PaymentApi) => {
+      if (!scenarioId) return;
+      qc.setQueryData<PaymentApi[]>(paymentsQueryKey(scenarioId), (current) =>
+        (current ?? []).filter((p) => p.id !== deleted.id),
+      );
+    },
+    [qc, scenarioId],
+  );
 
   const handleSimulateApply = useCallback((values: SimulateApplyValues) => {
     setCreateDraft({
@@ -179,7 +176,7 @@ export function HistoricoDetalhePage() {
     setCreateOpen(true);
   }, []);
 
-  if (status === "loading") {
+  if (isLoading) {
     return (
       <div className="flex flex-col gap-4" data-testid="detalhe-loading">
         <Skeleton className="h-10 w-64" />
@@ -194,7 +191,7 @@ export function HistoricoDetalhePage() {
     );
   }
 
-  if (status === "not-found") {
+  if (isNotFound) {
     return (
       <Alert data-testid="detalhe-not-found">
         <AlertTitle>Cenário não encontrado</AlertTitle>
@@ -208,20 +205,21 @@ export function HistoricoDetalhePage() {
     );
   }
 
-  if (status === "error") {
+  if (isError) {
     return (
       <Alert variant="destructive" data-testid="detalhe-error">
         <AlertTitle>Erro ao carregar</AlertTitle>
         <AlertDescription className="flex flex-col gap-3">
-          <span>
-            {errorMessage ?? "Não foi possível carregar o cenário."}
-          </span>
+          <span>{errorMessage ?? "Não foi possível carregar o cenário."}</span>
           <div>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => void fetchAll()}
+              onClick={() => {
+                void scenarioQuery.refetch();
+                void paymentsQuery.refetch();
+              }}
             >
               Tentar novamente
             </Button>

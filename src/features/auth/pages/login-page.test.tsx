@@ -5,11 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoginPage } from "@/features/auth/pages/login-page";
 
 const signInEmailMock = vi.fn();
+const signInSocialMock = vi.fn();
 const sendVerificationEmailMock = vi.fn();
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
-    signIn: { email: (...args: unknown[]) => signInEmailMock(...args) },
+    signIn: {
+      email: (...args: unknown[]) => signInEmailMock(...args),
+      social: (...args: unknown[]) => signInSocialMock(...args),
+    },
     sendVerificationEmail: (...args: unknown[]) =>
       sendVerificationEmailMock(...args),
   },
@@ -29,7 +33,7 @@ vi.mock("@/features/auth/components/turnstile-field", () => ({
   },
 }));
 
-function renderLogin(initialEntries: Array<string | { pathname: string; state: unknown }> = ["/login"]) {
+function renderLogin(initialEntries: string[] = ["/login"]) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <Routes>
@@ -61,11 +65,13 @@ function fillForm({
 describe("LoginPage", () => {
   beforeEach(() => {
     signInEmailMock.mockReset();
+    signInSocialMock.mockReset();
     sendVerificationEmailMock.mockReset();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("renders the form fields, turnstile widget, and the navigation links", () => {
@@ -104,7 +110,7 @@ describe("LoginPage", () => {
     expect(signInEmailMock).not.toHaveBeenCalled();
   });
 
-  it("submits sign-in payload with the turnstile token and navigates to /financiamento on success", async () => {
+  it("submits sign-in payload with the turnstile token and navigates to /historico by default on success", async () => {
     signInEmailMock.mockResolvedValueOnce({ data: {}, error: null });
     renderLogin();
     fireEvent.click(screen.getByTestId("turnstile-stub"));
@@ -116,17 +122,15 @@ describe("LoginPage", () => {
     expect(signInEmailMock).toHaveBeenCalledWith({
       email: "joao@exemplo.com",
       password: "senha-segura-123",
-      callbackURL: "/financiamento",
+      callbackURL: "/historico",
       fetchOptions: { body: { turnstileToken: "ts-token-abc" } },
     });
-    expect(
-      await screen.findByText(/financiamento page/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/historico page/i)).toBeInTheDocument();
   });
 
-  it("honours the original destination passed via location.state.from after successful login", async () => {
+  it("honours the ?next= destination after successful login", async () => {
     signInEmailMock.mockResolvedValueOnce({ data: {}, error: null });
-    renderLogin([{ pathname: "/login", state: { from: "/historico" } }]);
+    renderLogin(["/login?next=%2Ffinanciamento"]);
     fireEvent.click(screen.getByTestId("turnstile-stub"));
     fillForm();
     fireEvent.click(screen.getByRole("button", { name: /^entrar$/i }));
@@ -134,9 +138,9 @@ describe("LoginPage", () => {
       expect(signInEmailMock).toHaveBeenCalledTimes(1);
     });
     expect(signInEmailMock).toHaveBeenCalledWith(
-      expect.objectContaining({ callbackURL: "/historico" }),
+      expect.objectContaining({ callbackURL: "/financiamento" }),
     );
-    expect(await screen.findByText(/historico page/i)).toBeInTheDocument();
+    expect(await screen.findByText(/financiamento page/i)).toBeInTheDocument();
   });
 
   it("shows pt-BR error when credentials are invalid", async () => {
@@ -220,5 +224,38 @@ describe("LoginPage", () => {
     expect(
       await screen.findByText(/verificação anti-bot inválida/i),
     ).toBeInTheDocument();
+  });
+
+  it("hides the Google button when VITE_GOOGLE_ENABLED is not 'true'", () => {
+    renderLogin();
+    expect(
+      screen.queryByRole("button", { name: /continuar com google/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the Google button when enabled and triggers signIn.social with the default callbackURL", () => {
+    vi.stubEnv("VITE_GOOGLE_ENABLED", "true");
+    renderLogin();
+    const googleButton = screen.getByRole("button", {
+      name: /continuar com google/i,
+    });
+    fireEvent.click(googleButton);
+    expect(signInSocialMock).toHaveBeenCalledTimes(1);
+    expect(signInSocialMock).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/historico",
+    });
+  });
+
+  it("passes the ?next= destination to signIn.social as the callbackURL", () => {
+    vi.stubEnv("VITE_GOOGLE_ENABLED", "true");
+    renderLogin(["/login?next=%2Ffinanciamento"]);
+    fireEvent.click(
+      screen.getByRole("button", { name: /continuar com google/i }),
+    );
+    expect(signInSocialMock).toHaveBeenCalledWith({
+      provider: "google",
+      callbackURL: "/financiamento",
+    });
   });
 });

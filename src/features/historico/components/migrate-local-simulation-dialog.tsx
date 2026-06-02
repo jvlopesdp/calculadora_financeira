@@ -18,8 +18,9 @@ import {
   readLegacySimulation,
   type LegacySimulation,
 } from "@/lib/local-simulation-migration";
-import { ApiError, createScenario } from "@/lib/api-client";
-import { useCurrentUser } from "@/lib/use-current-user";
+import { ApiError } from "@/lib/api-client";
+import { useCreateScenario } from "@/lib/queries/scenarios";
+import { useSession } from "@/lib/queries/session";
 
 type Status = "idle" | "importing" | "error";
 
@@ -34,7 +35,8 @@ type Status = "idle" | "importing" | "error";
  * - On import: POST /api/scenarios then `navigate(/historico/<novoId>)`.
  */
 export function MigrateLocalSimulationDialog() {
-  const { user, isLoading } = useCurrentUser();
+  const { user, isPending } = useSession();
+  const createMutation = useCreateScenario();
   const navigate = useNavigate();
   const [legacy, setLegacy] = useState<LegacySimulation | null>(null);
   const [open, setOpen] = useState(false);
@@ -42,7 +44,7 @@ export function MigrateLocalSimulationDialog() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isLoading || !user) return;
+    if (isPending || !user) return;
     if (isMigrationDone()) return;
     const candidate = readLegacySimulation();
     if (!candidate) {
@@ -53,7 +55,7 @@ export function MigrateLocalSimulationDialog() {
     }
     setLegacy(candidate);
     setOpen(true);
-  }, [isLoading, user]);
+  }, [isPending, user]);
 
   const handleDiscard = useCallback(() => {
     clearLegacySimulation();
@@ -69,7 +71,9 @@ export function MigrateLocalSimulationDialog() {
     setStatus("importing");
     setErrorMessage(null);
     try {
-      const scenario = await createScenario(legacyToCreateInput(legacy));
+      const scenario = await createMutation.mutateAsync(
+        legacyToCreateInput(legacy),
+      );
       clearLegacySimulation();
       markMigrationDone();
       setOpen(false);
@@ -86,7 +90,7 @@ export function MigrateLocalSimulationDialog() {
       setErrorMessage(message);
       setStatus("error");
     }
-  }, [legacy, navigate]);
+  }, [legacy, navigate, createMutation]);
 
   if (!legacy) return null;
 

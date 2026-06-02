@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import app from "./index";
+import { app } from "./index";
 import type { Env } from "./env";
 
 vi.mock("./auth", () => ({

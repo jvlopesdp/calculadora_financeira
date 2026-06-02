@@ -28,7 +28,8 @@ import {
   createScenarioSchema,
   type CreateScenarioFormValues,
 } from "@/features/historico/schemas/create-scenario";
-import { ApiError, createScenario, type ScenarioApi } from "@/lib/api-client";
+import { ApiError, type ScenarioApi } from "@/lib/api-client";
+import { useCreateScenario } from "@/lib/queries/scenarios";
 
 const defaultValues: CreateScenarioFormValues = {
   name: "",
@@ -44,9 +45,10 @@ export interface NewScenarioDialogProps {
 }
 
 export function NewScenarioDialog({ onCreated }: NewScenarioDialogProps) {
+  const createMutation = useCreateScenario();
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const submitting = createMutation.isPending;
 
   const form = useForm<CreateScenarioFormValues>({
     resolver: zodResolver(createScenarioSchema),
@@ -63,9 +65,8 @@ export function NewScenarioDialog({ onCreated }: NewScenarioDialogProps) {
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFormError(null);
-    setSubmitting(true);
     try {
-      const scenario = await createScenario(values);
+      const scenario = await createMutation.mutateAsync(values);
       onCreated(scenario);
       setOpen(false);
       form.reset(defaultValues);
@@ -86,8 +87,6 @@ export function NewScenarioDialog({ onCreated }: NewScenarioDialogProps) {
             : "Erro de rede. Verifique sua conexão e tente novamente.",
         );
       }
-    } finally {
-      setSubmitting(false);
     }
   });
 

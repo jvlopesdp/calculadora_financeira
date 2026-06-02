@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
@@ -14,41 +14,83 @@ import {
   type FinancingFormValues,
 } from "@/features/simulator/schemas/financing";
 import { useSimulation } from "@/features/simulator/hooks/simulation-context";
+import { useSimulatorDraft } from "@/features/simulator/hooks/use-simulator-draft";
+import {
+  EMPTY_FINANCING_DRAFT,
+  type FinancingDraft,
+} from "@/features/simulator/lib/simulator-draft";
 
-type FormShape = {
-  propertyValue: number | null;
-  downPayment: number | null;
-  monthlyRate: number | null;
-  termMonths: number | null;
-  system: "PRICE" | "SAC";
-};
-
-const defaultValues: FormShape = {
-  propertyValue: null,
-  downPayment: null,
-  monthlyRate: null,
-  termMonths: null,
-  system: "PRICE",
-};
+type FormShape = FinancingDraft;
 
 function toEquivalentAnnualRate(monthlyRate: number): number {
   return (Math.pow(1 + monthlyRate / 100, 12) - 1) * 100;
 }
 
+function toNumberOrNull(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function watchedToDraft(watched: Partial<FormShape>): FinancingDraft {
+  return {
+    propertyValue: toNumberOrNull(watched.propertyValue),
+    downPayment: toNumberOrNull(watched.downPayment),
+    monthlyRate: toNumberOrNull(watched.monthlyRate),
+    termMonths: toNumberOrNull(watched.termMonths),
+    system: watched.system === "SAC" ? "SAC" : "PRICE",
+  };
+}
+
 export function FinancingForm() {
+  const { initialFinancing, restoredFinancing, restoreToken, reportInput } =
+    useSimulatorDraft();
+
   const {
     control,
     handleSubmit,
     register,
+    reset,
     formState: { errors, isValid },
   } = useForm<FormShape>({
     resolver: zodResolver(financingSchema),
     mode: "onChange",
-    defaultValues,
+    defaultValues: initialFinancing ?? EMPTY_FINANCING_DRAFT,
   });
 
   const watched = useWatch({ control });
   const { setFinancing } = useSimulation();
+
+  // A draft that arrives after mount (the D1 draft for logged-in users) resets
+  // the form once. `useSimulatorDraft` only bumps `restoreToken` while the user
+  // has not started typing, so this never wipes in-progress input.
+  const skipReportRef = useRef(false);
+  useEffect(() => {
+    if (restoreToken === 0 || !restoredFinancing) return;
+    skipReportRef.current = true;
+    reset(restoredFinancing);
+  }, [restoreToken, restoredFinancing, reset]);
+
+  // Autosave: forward real input changes to the draft hook. The first emission
+  // (mount) and reset-driven emissions are skipped so they are not treated as
+  // user edits.
+  const firstWatchRef = useRef(true);
+  const lastSerializedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const draft = watchedToDraft(watched);
+    const serialized = JSON.stringify(draft);
+    if (firstWatchRef.current) {
+      firstWatchRef.current = false;
+      lastSerializedRef.current = serialized;
+      return;
+    }
+    if (skipReportRef.current) {
+      skipReportRef.current = false;
+      lastSerializedRef.current = serialized;
+      return;
+    }
+    if (serialized === lastSerializedRef.current) return;
+    lastSerializedRef.current = serialized;
+    reportInput(draft);
+  }, [watched, reportInput]);
 
   const financedAmount = useMemo(() => {
     const propertyValue = watched.propertyValue;

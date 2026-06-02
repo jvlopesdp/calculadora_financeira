@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { ReactNode } from "react";
 
@@ -85,24 +86,29 @@ function makeScenario(overrides: Partial<ScenarioApi>): ScenarioApi {
 }
 
 function renderAt(path: string) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route
-          path="/historico/:scenarioId"
-          element={
-            <>
-              <ScenarioCombobox />
-              <div data-testid="location" />
-            </>
-          }
-        />
-        <Route
-          path="/historico/:scenarioId/x"
-          element={<div>navigated-to-{":scenarioId"}</div>}
-        />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route
+            path="/historico/:scenarioId"
+            element={
+              <>
+                <ScenarioCombobox />
+                <div data-testid="location" />
+              </>
+            }
+          />
+          <Route
+            path="/historico/:scenarioId/x"
+            element={<div>navigated-to-{":scenarioId"}</div>}
+          />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -160,15 +166,20 @@ describe("ScenarioCombobox", () => {
       makeScenario({ id: "sc_2", name: "Casa B" }),
     ]);
 
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     render(
-      <MemoryRouter initialEntries={["/historico/sc_1"]}>
-        <Routes>
-          <Route
-            path="/historico/:scenarioId"
-            element={<ScenarioCombobox />}
-          />
-        </Routes>
-      </MemoryRouter>,
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/historico/sc_1"]}>
+          <Routes>
+            <Route
+              path="/historico/:scenarioId"
+              element={<ScenarioCombobox />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     fireEvent.click(screen.getByTestId("open-dropdown"));

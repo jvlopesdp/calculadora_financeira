@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   afterEach,
   beforeEach,
@@ -16,10 +17,9 @@ import { SimulationProvider } from "@/features/simulator/hooks/simulation-provid
 
 const useSessionMock = vi.fn();
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: {
-    useSession: () => useSessionMock(),
-  },
+vi.mock("@/lib/queries/session", () => ({
+  useSession: () => useSessionMock(),
+  useSignOut: () => ({ mutate: vi.fn() }),
 }));
 
 type MediaQueryListener = (event: MediaQueryListEvent) => void;
@@ -43,26 +43,32 @@ function stubMatchMedia(prefersDark: boolean) {
 }
 
 function setSession(value: {
-  data: unknown;
+  data: { user?: unknown; session?: unknown } | null;
   isPending: boolean;
-  error?: Error | null;
+  isError?: boolean;
 }) {
   (useSessionMock as Mock).mockReturnValue({
-    data: value.data,
+    user: value.data?.user ?? null,
+    session: value.data?.session ?? null,
     isPending: value.isPending,
-    error: value.error ?? null,
+    isError: value.isError ?? false,
   });
 }
 
 function renderAt(path: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
-    <ThemeProvider>
-      <SimulationProvider>
-        <MemoryRouter initialEntries={[path]}>
-          <AppRoutes />
-        </MemoryRouter>
-      </SimulationProvider>
-    </ThemeProvider>,
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <SimulationProvider>
+          <MemoryRouter initialEntries={[path]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </SimulationProvider>
+      </ThemeProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -112,11 +118,14 @@ describe("AppRoutes", () => {
     ).toBeInTheDocument();
   });
 
-  it("redirects unauthenticated /historico to /login", () => {
+  it("shows auth modal for unauthenticated /historico without redirecting", () => {
     setSession({ data: null, isPending: false });
     renderAt("/historico");
     expect(
-      screen.getByRole("heading", { level: 3, name: /^entrar$/i }),
+      screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /entrar na minha conta/i }),
     ).toBeInTheDocument();
   });
 

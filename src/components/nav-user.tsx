@@ -26,8 +26,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { authClient } from "@/lib/auth-client";
-import { useCurrentUser } from "@/lib/use-current-user";
+import { useSession, useSignOut } from "@/lib/queries/session";
 
 function getInitials(name: string | null | undefined, email: string): string {
   const source = name && name.trim().length > 0 ? name : email;
@@ -42,7 +41,8 @@ function getInitials(name: string | null | undefined, email: string): string {
 export function NavUser() {
   const { isMobile } = useSidebar();
   const navigate = useNavigate();
-  const { user, isLoading } = useCurrentUser();
+  const { user, isPending } = useSession();
+  const signOut = useSignOut();
 
   if (!user) {
     return (
@@ -50,13 +50,13 @@ export function NavUser() {
         <SidebarMenuItem>
           <SidebarMenuButton
             size="lg"
-            disabled={isLoading}
+            disabled={isPending}
             onClick={() => navigate("/login")}
             className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
           >
             <IconLogin />
             <span className="truncate text-sm font-medium">
-              {isLoading ? "Carregando…" : "Entrar"}
+              {isPending ? "Carregando…" : "Entrar"}
             </span>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -68,11 +68,9 @@ export function NavUser() {
     user.name && user.name.trim().length > 0 ? user.name : user.email;
   const initials = getInitials(user.name, user.email);
 
-  async function handleSignOut() {
-    await authClient.signOut({
-      fetchOptions: {
-        onSuccess: () => navigate("/login"),
-      },
+  function handleSignOut() {
+    signOut.mutate(undefined, {
+      onSuccess: () => navigate("/login"),
     });
   }
 

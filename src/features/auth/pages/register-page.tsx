@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { GoogleSignInButton } from "@/features/auth/components/google-sign-in-button";
 import { TurnstileField } from "@/features/auth/components/turnstile-field";
 import {
   registerSchema,
@@ -61,6 +62,7 @@ function translateSignUpError(error: SignUpErrorBody | null | undefined): string
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -135,6 +137,7 @@ export function RegisterPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <GoogleSignInButton next={searchParams.get("next")} />
         <Form {...form}>
           <form className="space-y-4" onSubmit={onSubmit} noValidate>
             <FormField

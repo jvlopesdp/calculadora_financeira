@@ -1,16 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
-const useSessionMock = vi.fn();
+const signOutMutateMock = vi.fn();
 
-vi.mock("@/lib/auth-client", () => ({
-  authClient: {
-    useSession: () => useSessionMock(),
-  },
+vi.mock("@/lib/queries/session", () => ({
+  useSession: () => ({ user: null, session: null, isPending: false, isError: false }),
+  useSignOut: () => ({ mutate: signOutMutateMock }),
 }));
 
 function stubMatchMedia() {
@@ -30,18 +29,6 @@ function stubMatchMedia() {
   });
 }
 
-function setSession(value: {
-  data: unknown;
-  isPending: boolean;
-  error?: Error | null;
-}) {
-  (useSessionMock as Mock).mockReturnValue({
-    data: value.data,
-    isPending: value.isPending,
-    error: value.error ?? null,
-  });
-}
-
 function renderSidebar(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -52,33 +39,9 @@ function renderSidebar(path: string) {
   );
 }
 
-const authedSession = {
-  data: {
-    user: {
-      id: "u_1",
-      email: "user@example.com",
-      name: "Usuário",
-      emailVerified: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-    session: {
-      id: "s_1",
-      userId: "u_1",
-      token: "t",
-      expiresAt: new Date(Date.now() + 60_000),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
-  },
-  isPending: false,
-};
-
 describe("AppSidebar", () => {
   beforeEach(() => {
     stubMatchMedia();
-    useSessionMock.mockReset();
-    setSession({ data: null, isPending: false });
   });
 
   it("renders the brand header with the simulator link", () => {
@@ -87,26 +50,15 @@ describe("AppSidebar", () => {
     expect(brand).toHaveAttribute("href", "/financiamento");
   });
 
-  it("renders Financiamento and Alugar x Financiar for anonymous users", () => {
+  it("renders all nav items for anonymous users", () => {
     renderSidebar("/financiamento");
     expect(screen.getByText("Financiamento")).toBeInTheDocument();
+    expect(screen.getByText("Histórico")).toBeInTheDocument();
+    expect(screen.getByText("Acompanhamento")).toBeInTheDocument();
     expect(screen.getByText("Alugar x Financiar")).toBeInTheDocument();
   });
 
-  it("hides the Histórico item for anonymous users", () => {
-    setSession({ data: null, isPending: false });
-    renderSidebar("/financiamento");
-    expect(screen.queryByText("Histórico")).not.toBeInTheDocument();
-  });
-
-  it("shows the Histórico item for authenticated users", () => {
-    setSession(authedSession);
-    renderSidebar("/financiamento");
-    expect(screen.getByText("Histórico")).toBeInTheDocument();
-  });
-
   it("does not render legacy navDocuments labels", () => {
-    setSession(authedSession);
     renderSidebar("/financiamento");
     expect(screen.queryByText("Documentos")).not.toBeInTheDocument();
     expect(screen.queryByText("Gráficos")).not.toBeInTheDocument();
