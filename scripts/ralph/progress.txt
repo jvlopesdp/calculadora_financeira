@@ -137,3 +137,25 @@ Started: Tue Jun  2 17:37:47 PDT 2026
   - The `document.head` meta-injection pattern (create element → appendChild in useEffect → removeChild in cleanup) is testable in jsdom: query `document.head.querySelector('meta[name="robots"]')` after render and after `unmount()`.
   - US-010 is the final story: a full manual smoke (signup→verify→login→reset→branding) that can't be fully automated here (no browser/email tooling, wrangler needs Node 22). It is primarily a verification/checklist story.
 ---
+
+## 2026-06-02 20:03 - US-010
+- Final end-to-end smoke / verification story for the auth-fix + landing + branding branch. Validated the full signup→verify→login→reset→branding wiring at the code level and ran every automated quality gate this environment supports.
+- Automated gates (ALL GREEN): `bun run typecheck` clean; `bun run lint` clean (0 errors, only the pre-existing site-header react-refresh warning); `bun run test` → **777 tests / 82 files all passing**.
+- Code-level confirmation of each smoke step (grep-verified, no code changes needed):
+  - **Landing (anon /):** `landing-page.tsx` renders hero "Decisões financeiras com clareza" + "Começar a simular" CTA; brand palette (`bg-[#F7EFE2]` creme, `#B94F45` CTAs); footer with Entrar + Privacidade links. `RootRoute` in `routes.tsx` gates `/` on `useSession()`.
+  - **AuthLayout branding:** BrandLogo centered above `<Outlet/>` (US-004) — covered by `auth-layout.test.tsx`.
+  - **Verify email URL:** `auth.ts` `buildVerificationUrl` emits `${PUBLIC_APP_URL}/verify-email?token=...` (preserves callbackURL); `buildResetUrl` emits `${PUBLIC_APP_URL}/reset-password?token=...`.
+  - **Email branding:** `email-templates.ts` renders `<img src="${appUrl}/brand/email-logo.png" width="240" height="60">` and `#B94F45` CTA via `renderBrandedEmail`; covered by `email-templates.test.ts` (6 tests).
+  - **Verify → login redirect:** `verify-email-page.tsx` navigates to `/login?verified=1` (replace); `login-page.tsx` shows the `role="status"` emerald banner "Seu e-mail foi verificado. Entre com seu acesso." — covered by login/verify page tests.
+  - **Favicon/metadata:** `index.html` favicon + apple-touch-icon `/brand/icon.svg`, `theme-color #B94F45`.
+  - **Responsive AppShell:** `app-sidebar.tsx` shows BrandLogo (`hidden md:block`) / BrandMark (`md:hidden`).
+  - **Privacidade:** public `/privacidade` route + noindex meta (US-009).
+- Files changed: none (verification-only story); `scripts/ralph/prd.json` (passes flag) + this log.
+- **DEFERRED / environment-blocked ACs (NOK here, must be confirmed manually or in CI):**
+  - Live browser walkthrough (anon landing render, register page logo, /verify-email redirect timing, login banner visibility, reset form, mobile BrandMark swap, favicon in tab): **no browser/dev-browser MCP is configured in this sandbox** — cannot automate. All corresponding behaviors are unit-tested.
+  - Capturing the actual sent email HTML via Resend dev console / `sendVerificationEmail` interception: **no email tooling here** — template HTML is instead asserted by `email-templates.test.ts`.
+  - `bunx wrangler deploy --dry-run`: **wrangler needs Node ≥22; sandbox runs Node v20.20.2** — defer to CI.
+- **Learnings for future iterations:**
+  - This branch's full feature set (auth-fix, landing, branding) is complete and green on all in-sandbox checks. The only unverified items are the inherently-manual browser/email walkthroughs and the Node-22 wrangler dry-run, all of which CI (Node 22) + a human smoke pass will cover.
+  - Full `bun run test` here takes ~9 min wall-clock (heavy vitest setup/collect ~340s+528s); scope to specific paths when iterating, run the full suite only for final story sign-off.
+---
