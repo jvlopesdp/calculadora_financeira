@@ -30,3 +30,14 @@ Started: Tue Jun  2 17:37:47 PDT 2026
   - `index.html` lives at repo root (`/workspace/index.html`), not under `src/` or `public/`. The description meta uses the exact suggested copy. Title is the canonical brand string 'Calculadora Financeira.app' — reuse this exact casing elsewhere (alt-text, og tags) for consistency.
   - Editing `index.html` triggers a harmless "LF will be replaced by CRLF" git warning on this checkout.
 ---
+
+## 2026-06-02 18:52 - US-003
+- Created reusable React brand components `BrandLogo` and `BrandMark`.
+- Files changed: added `src/components/brand/brand-logo.tsx`, `src/components/brand/brand-mark.tsx`, `src/components/brand/brand-logo.test.tsx`, `src/components/brand/brand-mark.test.tsx`.
+- `BrandLogo` renders `<img src="/brand/logo-nome.svg" alt="Calculadora Financeira.app" loading="eager">`; `BrandMark` uses `/brand/logo-mark.svg`. Both take an optional `className` prop (strict interface, no `any`).
+- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); brand tests pass (4/4) via `bun run test -- src/components/brand`.
+- **Learnings for future iterations:**
+  - Test pattern: smoke-test `<img>` via `screen.getByAltText("Calculadora Financeira.app")` then assert `toHaveAttribute("src", ...)`. Both logos share the same alt-text, so when both are mounted in the same tree (e.g. US-004 AppShell with responsive show/hide), query by `src` or use `getAllByAltText` to disambiguate.
+  - US-004 will wrap these in `<Link>` (BrandLogo → /financiamento in AppShell, → / in AuthLayout) and apply responsive classes (`hidden md:block` / `md:hidden`).
+  - Vitest startup here is heavy (~50s for env/collect even for 2 trivial files); scope `bun run test -- <path>` to the story's files when iterating.
+---
