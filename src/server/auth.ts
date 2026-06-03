@@ -106,6 +106,7 @@ export function createAuth(env: Env) {
         const template = verifyEmailTemplate({
           url: buildVerificationUrl(env.PUBLIC_APP_URL, url),
           name: user.name,
+          publicAppUrl: env.PUBLIC_APP_URL,
         });
         await sendEmail(
           {
@@ -124,6 +125,7 @@ export function createAuth(env: Env) {
         const template = resetPasswordTemplate({
           url: buildResetUrl(env.PUBLIC_APP_URL, url),
           name: user.name,
+          publicAppUrl: env.PUBLIC_APP_URL,
         });
         await sendEmail(
           {
