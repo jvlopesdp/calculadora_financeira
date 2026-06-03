@@ -121,3 +121,19 @@ Started: Tue Jun  2 17:37:47 PDT 2026
   - `useSession()` returns the flat `{ user, session, isPending, isError }` shape — `RootRoute` reads `user`/`isPending` directly (no `.data` indirection).
   - US-009 will add `<Link to="/privacidade">Privacidade</Link>` to this footer (next to the Entrar link) and a public `/privacidade` route outside the AppShell — landing-page.test.tsx footer assertions will need the new link.
 ---
+
+## 2026-06-02 19:51 - US-009
+- Added a public `/privacidade` placeholder route and a footer link to it on the LandingPage.
+- `src/features/landing/pages/privacidade-page.tsx` (new): `PrivacidadePage` — BrandLogo (wrapped in `<Link to="/">`) at top, `<h1>` "Política de privacidade", placeholder paragraph, "Voltar para o início" → /. A `useEffect` appends `<meta name="robots" content="noindex">` to `document.head` on mount and removes it on unmount. Reuses the landing's brand palette (`bg-[#F7EFE2]`, `#B94F45` accent link).
+- `src/app/routes.tsx`: added `<Route path="/privacidade" element={<PrivacidadePage />} />` as a public route OUTSIDE both AuthLayout and AppShell (sits right after the `/` RootRoute).
+- `src/features/landing/pages/landing-page.tsx`: footer now wraps the "Entrar" link in a `<nav>` and adds a discreet `<Link to="/privacidade">Privacidade</Link>` (same `text-sm text-muted-foreground` footer styling).
+- `src/features/landing/pages/landing-page.test.tsx`: added a test asserting the footer has a Privacidade link with `href="/privacidade"`.
+- `src/features/landing/pages/privacidade-page.test.tsx` (new): asserts title + placeholder paragraph render, the back link points to `/`, and the robots noindex meta is inserted on mount and removed on unmount.
+- Files changed: `src/features/landing/pages/privacidade-page.tsx` (new), `src/features/landing/pages/privacidade-page.test.tsx` (new), `src/app/routes.tsx`, `src/features/landing/pages/landing-page.tsx`, `src/features/landing/pages/landing-page.test.tsx`.
+- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); `bun run test -- src/features/landing` → 9/9 green (landing 6, privacidade 3); `bun run test -- src/app/App.test.tsx` → 9/9 still green (routes.tsx change didn't regress routing).
+- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual check of the /privacidade page render + noindex meta + footer link still needed (deferred to US-010 smoke / manual).
+- **Learnings for future iterations:**
+  - Public routes (no auth chrome) go directly under `<Routes>` in `routes.tsx`, as siblings of `/` — NOT inside the `<Route element={<AuthLayout/>}>` or `<Route element={<AppShell/>}>` wrappers. `/privacidade` follows this pattern.
+  - The `document.head` meta-injection pattern (create element → appendChild in useEffect → removeChild in cleanup) is testable in jsdom: query `document.head.querySelector('meta[name="robots"]')` after render and after `unmount()`.
+  - US-010 is the final story: a full manual smoke (signup→verify→login→reset→branding) that can't be fully automated here (no browser/email tooling, wrangler needs Node 22). It is primarily a verification/checklist story.
+---
