@@ -77,3 +77,14 @@ Started: Tue Jun  2 17:37:47 PDT 2026
   - `wrangler` CLI needs Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs can't be executed here — note as a CI-only check.
   - US-007 will refactor the email templates and needs `publicAppUrl` threaded into `verifyEmailTemplate`/`resetPasswordTemplate`; the callers in `auth.ts` already build the final action URL via these helpers, so US-007 should pass `env.PUBLIC_APP_URL` as the separate `publicAppUrl` template input (for the logo/footer links), distinct from the action `url`.
 ---
+
+## 2026-06-02 19:24 - US-006
+- After e-mail verification, `verify-email-page.tsx` now redirects to `/login?verified=1` (kept `REDIRECT_DELAY_MS` + `replace: true`).
+- `login-page.tsx`: reads `searchParams.get("verified") === "1"` into `showVerifiedBanner` state; renders a success banner (`role="status"`, `aria-live="polite"`, `text-emerald-600 dark:text-emerald-400`) with text "Seu e-mail foi verificado. Entre com seu acesso." just above the `<Form>` (above GoogleSignInButton). Banner auto-dismisses after 8s (useEffect setTimeout cleared on unmount) OR when the form is submitted (`setShowVerifiedBanner(false)` in `onSubmit`).
+- Files changed: `src/features/auth/pages/verify-email-page.tsx`, `src/features/auth/pages/login-page.tsx`, `src/features/auth/pages/login-page.test.tsx`, `src/features/auth/pages/verify-email-page.test.tsx`.
+- Tests: added 2 login-page tests (banner with `?verified=1`, no banner without param); updated the verify-email success test to assert the redirect carries `verified=1` (added a `LoginRouteStub` reading `useSearchParams`). login (15) + verify (7) green; typecheck + lint clean (only pre-existing site-header react-refresh warning).
+- Browser verification: NO browser MCP tooling available here — manual check of the emerald banner + 8s auto-dismiss still needed (AC "Verify in browser" deferred).
+- **Learnings for future iterations:**
+  - Banner pattern mirrors the existing `?flash=` message (same emerald classes + `aria-live`); both live above the form. Re-use this convention for any new auth status banners.
+  - In React Router tests, route matching ignores query strings, so a `/login` route element renders for `/login?verified=1` too. To assert the query actually arrived, render a stub that reads `useSearchParams()` (see `LoginRouteStub`) instead of a plain `<div>`.
+---
