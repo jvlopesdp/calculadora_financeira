@@ -9,6 +9,8 @@ Started: Tue Jun  2 17:37:47 PDT 2026
 - `Env` (`src/server/env.d.ts`) has all-required fields. Adding a new required field breaks every fake-`Env` in `src/server/**/*.test.ts` — grep `BETTER_AUTH_URL:` and add the field next to it in each.
 - Server auth/url logic is written as pure exported helpers and unit-tested directly (never instantiate `betterAuth()` — it starts a background D1 init promise that rejects with a fake DB). See `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl` in `auth.ts`.
 - `wrangler` CLI requires Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs cannot be executed here — defer to CI.
+- Rasterize brand SVGs with ImageMagick: `convert -background none -density 300 -resize WxH in.svg out.png` (`/usr/bin/convert` exists; `rsvg-convert`/`inkscape`/`magick` do not). NOTE: `logo-nome.svg` is a WHITE wordmark — never place it on white/cream; back it with a dark/brand-colored fill.
+- Transactional emails (`src/server/email-templates.ts`) go through `renderBrandedEmail` — keep CSS fully inline (no `<style>`), pass RAW (unescaped) `name`/`url` (the helper escapes everything), and thread `publicAppUrl: env.PUBLIC_APP_URL` for the logo/footer links.
 
 ## 2026-06-02 17:50 - US-001
 - Moved brand SVGs into a dedicated stable folder and wired them for build.
@@ -87,4 +89,20 @@ Started: Tue Jun  2 17:37:47 PDT 2026
 - **Learnings for future iterations:**
   - Banner pattern mirrors the existing `?flash=` message (same emerald classes + `aria-live`); both live above the form. Re-use this convention for any new auth status banners.
   - In React Router tests, route matching ignores query strings, so a `/login` route element renders for `/login?verified=1` too. To assert the query actually arrived, render a stub that reads `useSearchParams()` (see `LoginRouteStub`) instead of a plain `<div>`.
+---
+
+## 2026-06-02 19:40 - US-007
+- Refactored `src/server/email-templates.ts` around a shared exported `renderBrandedEmail({ heading, intro, ctaLabel, ctaUrl, closing, publicAppUrl })` helper that emits brand-styled HTML (CSS exclusively inline, no `<style>` block) + a plain-text variant. `verifyEmailTemplate`/`resetPasswordTemplate` now delegate to it and take an extra `publicAppUrl` input; subjects, personalized greeting, and the verify/reset warnings are preserved.
+- HTML layout: body bg `#F7EFE2`, centered `max-width:600px` container, white card `border-radius:12px` `padding:32px` `border-top:4px solid #B94F45`, brand-red CTA button (`#B94F45` / white, `14px 24px`, `border-radius:8px`), textual fallback link, footer in `#7A7A7A` with `© {year} Calculadora Financeira.app · calculadorafinanceira.app`. Font stack `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` (single-quoted inner names so it survives the double-quoted style attribute).
+- Generated `public/brand/email-logo.png` (480×118, transparent RGBA) by exporting `public/brand/logo-nome.svg` with ImageMagick `convert -background none -density 300 -resize 480x120`. No placeholder needed — real export succeeded.
+- Updated callers in `src/server/auth.ts` to pass `publicAppUrl: env.PUBLIC_APP_URL` to both templates (distinct from the already-rewritten action `url`).
+- Added `src/server/email-templates.test.ts` (6 tests): verify+reset HTML contain `/brand/email-logo.png`, `#B94F45`, and the action url; greeting + warnings preserved; escapeHtml applied to hostile url (`"><script>`) and name (with quotes); text variants contain the raw url + branded signature; renderBrandedEmail trims a trailing slash from publicAppUrl and emits no `<style>` block.
+- Files changed: `public/brand/email-logo.png` (new), `src/server/email-templates.ts`, `src/server/email-templates.test.ts` (new), `src/server/auth.ts`.
+- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); full suite green — 767 tests / 80 files.
+- **DESIGN NOTE / potential follow-up (NOK risk):** `logo-nome.svg` is a *white* wordmark (`fill="white"` / `#F2F2F7`, only `.app` is brick-red), designed for dark backgrounds. On a plain white email card it would be nearly invisible, so the logo is placed on a brand-red (`#B94F45`) rounded header band inside the white card. This keeps it legible and looks intentional, but if a light-background logo variant is later produced, swap the band for a plain header. Email rendering itself was NOT verified in a real client (no email/browser tooling here).
+- **Learnings for future iterations:**
+  - ImageMagick `convert` IS available in this sandbox (`/usr/bin/convert`); `rsvg-convert`/`inkscape`/`magick` are not. Use `convert -background none -density 300 -resize WxH in.svg out.png` to rasterize brand SVGs.
+  - The brand wordmark (`logo-nome.svg`) is white-on-transparent → never place it directly on white/cream; back it with a dark or brand-colored fill.
+  - Email HTML must keep all CSS inline (no `<style>`) and use single-quoted font names inside the double-quoted `style="..."` attribute, e.g. `'Segoe UI'`, or the attribute breaks.
+  - `renderBrandedEmail` escapes ALL caller strings itself — callers must pass RAW `name`/`url` (the greeting builds the raw name); do not pre-escape or you double-encode.
 ---
