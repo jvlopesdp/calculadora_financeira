@@ -1,4 +1,6 @@
-import { Outlet } from "react-router-dom";
+import { Link, Outlet } from "react-router-dom";
+
+import { BrandLogo } from "@/components/brand/brand-logo";
 
 /**
  * Layout limpo para as rotas públicas de autenticação. Sem sidebar, sem header
@@ -7,14 +9,10 @@ import { Outlet } from "react-router-dom";
 export function AuthLayout() {
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
-      <header className="border-border border-b">
-        <div className="mx-auto flex max-w-screen-xl items-center px-4 py-4 md:px-6">
-          <span className="font-serif text-lg font-bold md:text-xl">
-            Calculadora Financeira
-          </span>
-        </div>
-      </header>
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-4 py-12 md:px-6">
+        <Link to="/" className="mb-8 flex justify-center">
+          <BrandLogo className="h-10 w-auto" />
+        </Link>
         <Outlet />
       </main>
     </div>
