@@ -6,6 +6,9 @@ Started: Tue Jun  2 17:37:47 PDT 2026
 - Static assets live under `public/` (Vite default `publicDir`; there is no explicit `publicDir` in vite.config.ts). Files in `public/` are copied verbatim to `dist/client/` at build. Reference them by absolute path from the SPA (e.g. `/brand/icon.svg`).
 - Build is `tsc -b && vite build` via the @cloudflare/vite-plugin; **vite build is SLOW (~6 min)** because it bundles xlsx + fonts. Run builds in background and poll the process, not the output file (output is buffered until the end).
 - `bun run typecheck` = `tsc -b --noEmit`; `bun run lint` = `eslint .`; `bun run test` = `vitest run` (foreground only).
+- `Env` (`src/server/env.d.ts`) has all-required fields. Adding a new required field breaks every fake-`Env` in `src/server/**/*.test.ts` — grep `BETTER_AUTH_URL:` and add the field next to it in each.
+- Server auth/url logic is written as pure exported helpers and unit-tested directly (never instantiate `betterAuth()` — it starts a background D1 init promise that rejects with a fake DB). See `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl` in `auth.ts`.
+- `wrangler` CLI requires Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs cannot be executed here — defer to CI.
 
 ## 2026-06-02 17:50 - US-001
 - Moved brand SVGs into a dedicated stable folder and wired them for build.
@@ -56,4 +59,21 @@ Started: Tue Jun  2 17:37:47 PDT 2026
   - `app-sidebar.test.tsx` queries the brand link by `getByRole("link", { name: /calculadora financeira/i })` — the BrandLogo/BrandMark `alt="Calculadora Financeira.app"` satisfies this regex, so the test stayed green without edits. Both imgs share that alt, so within the single sidebar link the accessible name is the alt repeated — still matches.
   - In jsdom the Tailwind `hidden`/`md:block` classes don't apply (no CSS), so both BrandLogo and BrandMark are in the a11y tree during tests; query brand imgs by `src` (or `getAllByAltText`) to disambiguate when both are mounted.
   - AuthLayout had no pre-existing test; added one. It renders under a `<Route element={<AuthLayout/>}>` parent with child routes for the `<Outlet/>`.
+---
+
+## 2026-06-02 19:20 - US-005
+- Added `PUBLIC_APP_URL` to the typed `Env` and rewrote the verify/reset email links so they land on the existing SPA routes (`/verify-email?token=` and `/reset-password?token=`) instead of Better Auth's `/api/auth/*` endpoint (which falls through to the SPA 404).
+- `src/server/env.d.ts`: added required `PUBLIC_APP_URL: string` field to `Env`.
+- `wrangler.jsonc`: added `PUBLIC_APP_URL` to `vars` = `https://calculadorafinanceira.app` with a comment documenting the local-dev override (`.dev.vars` / `wrangler dev --var`).
+- `.env.example`: documented `PUBLIC_APP_URL=http://localhost:5173` for local dev.
+- `src/server/auth.ts`: added pure exported helpers `buildVerificationUrl(publicAppUrl, originalUrl)` and `buildResetUrl(publicAppUrl, originalUrl)` plus a non-throwing `getUrlParam` helper. They extract `token` (and preserve `callbackURL` for verify) via `new URL(...).searchParams`, trim a trailing slash from the base, and encode the token. `sendVerificationEmail` / `sendResetPassword` now pass `env.PUBLIC_APP_URL` through these helpers to the templates.
+- `src/server/auth.test.ts` (new): 9 tests covering verify+reset rewrites, callbackURL preservation/omission, trailing-slash trim, non-standard URL token extraction, and malformed-URL empty-token fallback. Follows the `googleSocialProvider` pattern — tests the pure helpers directly, never instantiating `betterAuth()` (which fires a background D1 init promise → unhandled rejections with a fake DB).
+- Because `PUBLIC_APP_URL` is a required `Env` field, every server test that builds a fake `Env` needed the field added: `auth-rate-limit-response`, `email`, `health`, `middleware/require-user`, `routes/payments|scenarios|tracker-entries|tracker-plans`, `scheduled`, `turnstile`.
+- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); full server suite green — 134 tests across 13 files (auth.test.ts 9/9).
+- **`wrangler deploy --dry-run` AC could NOT be run**: this environment has Node v20.20.2 but wrangler requires >= v22. The config change is a single valid `vars` entry (typecheck/lint cover the rest). NOK only due to the environment Node version — needs to be confirmed in CI where Node 22 is present.
+- **Learnings for future iterations:**
+  - `Env` (`src/server/env.d.ts`) is a REQUIRED-fields interface. Adding any new required field forces updating EVERY `baseEnv()`/fake-`Env` helper across `src/server/**/*.test.ts` or typecheck fails. Grep for `BETTER_AUTH_URL:` to find them all — they sit next to it.
+  - Server auth helpers are deliberately pure + exported so they can be unit-tested WITHOUT calling `betterAuth()` (which starts a background D1 init promise that rejects under a fake DB). Follow this pattern for any new auth logic — see `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl`.
+  - `wrangler` CLI needs Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs can't be executed here — note as a CI-only check.
+  - US-007 will refactor the email templates and needs `publicAppUrl` threaded into `verifyEmailTemplate`/`resetPasswordTemplate`; the callers in `auth.ts` already build the final action URL via these helpers, so US-007 should pass `env.PUBLIC_APP_URL` as the separate `publicAppUrl` template input (for the logo/footer links), distinct from the action `url`.
 ---
