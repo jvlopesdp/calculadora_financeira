@@ -1,0 +1,44 @@
+# Ralph Progress Log
+Started: 2026-05-27 (financing-tracker-foundations run)
+
+## Context inherited from previous run (ralph/auth-history-restructure)
+The previous Ralph run shipped email/password auth (Better Auth + D1 + Hono),
+Turnstile, rate limiting, shadcn dashboard shell, financing simulator MVP,
+scenarios CRUD, and payments CRUD. Full notes archived at
+`archive/2026-05-27-auth-history-restructure/`. Anything documented there about
+Better Auth wiring, Hono routing, D1 conventions (snake_case, cents, bp),
+FakeD1 testing, and the engine helpers still applies — do NOT re-derive.
+
+## Hot-fix applied 2026-05-27 (outside Ralph)
+- `BETTER_AUTH_URL` secret was corrupted in production (stored the literal
+  `wrangler secret put …` command string). User reset via wrangler; production
+  `/api/auth/get-session` returns 200 again. See `docs/auth-diagnosis.md` and
+  `docs/auth-smoke.md`.
+- Deferred (out of scope this run): deriving `baseURL` from request origin in
+  `createAuth`. Documented as recommendation in `auth-diagnosis.md`.
+
+## Codebase Patterns (carry over — do NOT re-discover)
+- Worker code under `src/server/` (typechecked via `tsconfig.server.json`,
+  workers-types only). Bindings declared in `src/server/env.d.ts`.
+- D1 SQL: lowercase keywords, double-quoted identifiers, money as integer
+  cents, rates as basis points, timestamps as `Date.now()` integers, dates as
+  `YYYY-MM-DD` strings.
+- Hono sub-app pattern: domain CRUD lives in `src/server/routes/<resource>.ts`,
+  applies its own `app.use("*", requireUser)`, mounted in `src/server/index.ts`
+  with `app.route(prefix, subApp)` BEFORE the parent `app.use("/api/*",
+  requireUser)`. More-specific routes mount first.
+- Testing pattern: FakeD1 in `src/server/routes/scenarios.test.ts` (recognised
+  SQL prefixes, throws on unknown SQL). Reuse it for new routes.
+- Frontend API client at `src/lib/api-client.ts` — keep plain `async` functions
+  exporting unwrapped row arrays; this run wraps them in TanStack Query hooks
+  under `src/lib/queries/`.
+- Engine helpers (`pricePayment`, `sacAmortizationPlan`,
+  `applyPrepaymentReduceTerm`, `applyPrepaymentReduceInstallment`,
+  `resolveExtraSchedule`, etc.) live in `src/core/finance/`. Tracker engines
+  MUST delegate to them — never duplicate fórmulas.
+- Cross-card simulation state via `useSimulation` context — for the new tracker
+  feature, use TanStack Query cache (`['tracker-plan', id]`) as the equivalent,
+  with optimistic mutations + rollback.
+
+## Codebase Patterns (this run will add)
+- (Add new reusable patterns here as stories complete.)
