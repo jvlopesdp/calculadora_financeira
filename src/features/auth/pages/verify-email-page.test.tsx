@@ -1,8 +1,18 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useSearchParams,
+} from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VerifyEmailPage } from "@/features/auth/pages/verify-email-page";
+
+function LoginRouteStub() {
+  const [params] = useSearchParams();
+  return <div>Login page (verified={params.get("verified") ?? "none"})</div>;
+}
 
 const verifyEmailMock = vi.fn();
 const sendVerificationEmailMock = vi.fn();
@@ -20,7 +30,7 @@ function renderVerify(initialPath = "/verify-email?token=abc123") {
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
         <Route path="/verify-email" element={<VerifyEmailPage />} />
-        <Route path="/login" element={<div>Login page</div>} />
+        <Route path="/login" element={<LoginRouteStub />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -49,7 +59,7 @@ describe("VerifyEmailPage", () => {
     });
   });
 
-  it("shows the success message and redirects to /login after 2s", async () => {
+  it("shows the success message and redirects to /login?verified=1 after 2s", async () => {
     verifyEmailMock.mockResolvedValueOnce({ data: { status: true }, error: null });
     renderVerify();
     expect(
@@ -59,7 +69,9 @@ describe("VerifyEmailPage", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(await screen.findByText(/login page/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/login page \(verified=1\)/i),
+    ).toBeInTheDocument();
   });
 
   it("shows pt-BR error for invalid/expired token and renders the resend form", async () => {
