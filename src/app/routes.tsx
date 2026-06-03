@@ -5,6 +5,7 @@ import { AuthLayout } from "@/app/auth-layout";
 import { NotFoundPage } from "@/app/not-found-page";
 import { ProtectedRoute } from "@/app/protected-route";
 import { LandingPage } from "@/features/landing/pages/landing-page";
+import { PrivacidadePage } from "@/features/landing/pages/privacidade-page";
 import { useSession } from "@/lib/queries/session";
 import { CheckEmailPage } from "@/features/auth/pages/check-email-page";
 import { ForgotPasswordPage } from "@/features/auth/pages/forgot-password-page";
@@ -40,6 +41,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<RootRoute />} />
+      <Route path="/privacidade" element={<PrivacidadePage />} />
 
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginPage />} />

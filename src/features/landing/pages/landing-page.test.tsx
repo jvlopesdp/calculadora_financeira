@@ -51,4 +51,10 @@ describe("LandingPage", () => {
     expect(footerLinks.length).toBeGreaterThanOrEqual(1);
     expect(footerLinks[footerLinks.length - 1]).toHaveAttribute("href", "/login");
   });
+
+  it("renders a Privacidade link in the footer", () => {
+    renderLanding();
+    const privacyLink = screen.getByRole("link", { name: /^privacidade$/i });
+    expect(privacyLink).toHaveAttribute("href", "/privacidade");
+  });
 });

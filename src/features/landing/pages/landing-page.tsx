@@ -59,9 +59,17 @@ export function LandingPage() {
 
       <footer className="mx-auto flex w-full max-w-5xl flex-col items-center justify-between gap-2 px-4 py-6 text-sm text-muted-foreground sm:flex-row md:px-6">
         <span>© {year} Calculadora Financeira.app</span>
-        <Link to="/login" className="hover:underline focus-visible:underline">
-          Entrar
-        </Link>
+        <nav className="flex items-center gap-4">
+          <Link to="/login" className="hover:underline focus-visible:underline">
+            Entrar
+          </Link>
+          <Link
+            to="/privacidade"
+            className="hover:underline focus-visible:underline"
+          >
+            Privacidade
+          </Link>
+        </nav>
       </footer>
     </div>
   );
