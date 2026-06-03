@@ -41,3 +41,19 @@ Started: Tue Jun  2 17:37:47 PDT 2026
   - US-004 will wrap these in `<Link>` (BrandLogo → /financiamento in AppShell, → / in AuthLayout) and apply responsive classes (`hidden md:block` / `md:hidden`).
   - Vitest startup here is heavy (~50s for env/collect even for 2 trivial files); scope `bun run test -- <path>` to the story's files when iterating.
 ---
+
+## 2026-06-02 18:59 - US-004
+- Applied BrandLogo/BrandMark to the authenticated AppShell (sidebar header) and the AuthLayout.
+- `src/components/app-sidebar.tsx`: replaced the `IconInnerShadowTop` + "Calculadora Financeira" `<span>` placeholder inside the existing `<Link to="/financiamento">` with `<BrandLogo className="hidden h-8 w-auto md:block" />` + `<BrandMark className="h-8 w-auto md:hidden" />` (responsive: wordmark on >=md, compact mark on mobile). Removed the now-unused `IconInnerShadowTop` import. Gave the SidebarMenuButton `h-auto` so the taller logo isn't clipped.
+- `src/app/auth-layout.tsx`: removed the old `<header>` + serif "Calculadora Financeira" `<span>`; render a centered `<BrandLogo className="h-10 w-auto" />` wrapped in `<Link to="/">` above the `<Outlet />`.
+- Added `src/app/auth-layout.test.tsx`: asserts the BrandLogo renders with `/brand/logo-nome.svg` and its link points to `/`, and that the routed outlet content renders.
+- Files changed: `src/components/app-sidebar.tsx`, `src/app/auth-layout.tsx`, `src/app/auth-layout.test.tsx`.
+- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); tests green — app-sidebar (5), site-header (15), brand (4), App routing (8), protected-route (4), auth-layout (2).
+- The literal string 'Simulador Financeiro' was already absent from `src/` (the prior placeholder was the brand text + Vite icon "Calculadora Financeira"); AC satisfied. AppShell page-title fallback "Calculadora Financeira" in `site-header.tsx getPageTitle` is a route title (not a logo placeholder) and is intentionally kept.
+- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual browser check of the logo in the sidebar/auth pages and the mobile BrandMark swap still needed.
+- **Learnings for future iterations:**
+  - The "logo placeholder" the PRD calls 'Simulador Financeiro' actually lived as `IconInnerShadowTop` + a "Calculadora Financeira" text span in `app-sidebar.tsx`, and a serif text span in `auth-layout.tsx`. Both are now brand components.
+  - `app-sidebar.test.tsx` queries the brand link by `getByRole("link", { name: /calculadora financeira/i })` — the BrandLogo/BrandMark `alt="Calculadora Financeira.app"` satisfies this regex, so the test stayed green without edits. Both imgs share that alt, so within the single sidebar link the accessible name is the alt repeated — still matches.
+  - In jsdom the Tailwind `hidden`/`md:block` classes don't apply (no CSS), so both BrandLogo and BrandMark are in the a11y tree during tests; query brand imgs by `src` (or `getAllByAltText`) to disambiguate when both are mounted.
+  - AuthLayout had no pre-existing test; added one. It renders under a `<Route element={<AuthLayout/>}>` parent with child routes for the `<Outlet/>`.
+---
