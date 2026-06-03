@@ -18,3 +18,15 @@ Started: Tue Jun  2 17:37:47 PDT 2026
   - `logo-nome.svg` is large (~20KB) and is the full wordmark; `logo-mark.svg` (~865B) is the compact mark; `icon.svg` (~950B) is the favicon/touch icon. US-002 should point favicon + apple-touch-icon at `/brand/icon.svg`.
   - US-003 BrandLogo uses `/brand/logo-nome.svg`; BrandMark uses `/brand/logo-mark.svg`.
 ---
+
+## 2026-06-02 18:45 - US-002
+- Updated `index.html` with brand favicon, title, and metadata.
+- Changes in `index.html`: favicon `<link rel="icon">` now points to `/brand/icon.svg` (was `/vite.svg`); added `<link rel="apple-touch-icon" href="/brand/icon.svg">`; added `<meta name="theme-color" content="#B94F45">`; added `<meta name="description">` (≤160 chars); `<title>` changed from 'Simulador Financeiro' to 'Calculadora Financeira.app'.
+- Files changed: `index.html`.
+- Verified: `grep -rn 'vite.svg' src/ index.html public/` returns nothing; `bun run typecheck` passes; `bun run lint` passes (0 errors, only a pre-existing react-refresh warning in site-header.tsx).
+- Browser verification: NO browser/dev-browser MCP tooling is available in this environment — manual browser verification of favicon + tab title still needed (NOK for automated check, but functionally trivial for a static index.html change).
+- **Learnings for future iterations:**
+  - No browser MCP is configured here; stories with "Verify in browser" ACs cannot be auto-verified — note manual verification and rely on typecheck/lint/tests.
+  - `index.html` lives at repo root (`/workspace/index.html`), not under `src/` or `public/`. The description meta uses the exact suggested copy. Title is the canonical brand string 'Calculadora Financeira.app' — reuse this exact casing elsewhere (alt-text, og tags) for consistency.
+  - Editing `index.html` triggers a harmless "LF will be replaced by CRLF" git warning on this checkout.
+---
