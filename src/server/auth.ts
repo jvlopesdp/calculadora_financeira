@@ -49,6 +49,48 @@ export function googleSocialProvider(env: Pick<Env, "GOOGLE_CLIENT_ID" | "GOOGLE
 }
 
 /**
+ * Extract a query-string parameter from a (possibly malformed) URL without
+ * throwing. Better Auth hands us an absolute action URL that points at its own
+ * `/api/auth/*` endpoint; we only need the embedded `token`/`callbackURL`.
+ */
+function getUrlParam(originalUrl: string, name: string): string | null {
+  try {
+    return new URL(originalUrl).searchParams.get(name);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rewrite Better Auth's verification URL into a link that lands on the existing
+ * SPA route `/verify-email?token=...` (served by the Worker) instead of the
+ * Better Auth `/api/auth/*` endpoint, which falls through to the SPA 404.
+ * Preserves `callbackURL` when present in the original URL.
+ *
+ * Pure + exported so it can be unit-tested without instantiating betterAuth
+ * (which fires a background D1 init promise — see `googleSocialProvider`).
+ */
+export function buildVerificationUrl(publicAppUrl: string, originalUrl: string): string {
+  const base = publicAppUrl.replace(/\/+$/, "");
+  const token = getUrlParam(originalUrl, "token") ?? "";
+  const callbackURL = getUrlParam(originalUrl, "callbackURL");
+  const callbackSuffix = callbackURL
+    ? `&callbackURL=${encodeURIComponent(callbackURL)}`
+    : "";
+  return `${base}/verify-email?token=${encodeURIComponent(token)}${callbackSuffix}`;
+}
+
+/**
+ * Rewrite Better Auth's password-reset URL into the existing SPA route
+ * `/reset-password?token=...`. Pure + exported for unit testing.
+ */
+export function buildResetUrl(publicAppUrl: string, originalUrl: string): string {
+  const base = publicAppUrl.replace(/\/+$/, "");
+  const token = getUrlParam(originalUrl, "token") ?? "";
+  return `${base}/reset-password?token=${encodeURIComponent(token)}`;
+}
+
+/**
  * Build a Better Auth instance bound to the current request's environment.
  * Created per-request because each Worker request carries its own D1 binding
  * and secret values (no module-level singletons in Cloudflare Workers).
@@ -61,7 +103,10 @@ export function createAuth(env: Env) {
     baseURL: env.BETTER_AUTH_URL,
     emailVerification: {
       sendVerificationEmail: async ({ user, url }) => {
-        const template = verifyEmailTemplate({ url, name: user.name });
+        const template = verifyEmailTemplate({
+          url: buildVerificationUrl(env.PUBLIC_APP_URL, url),
+          name: user.name,
+        });
         await sendEmail(
           {
             to: user.email,
@@ -76,7 +121,10 @@ export function createAuth(env: Env) {
     emailAndPassword: {
       ...sharedAuthOptions.emailAndPassword,
       sendResetPassword: async ({ user, url }) => {
-        const template = resetPasswordTemplate({ url, name: user.name });
+        const template = resetPasswordTemplate({
+          url: buildResetUrl(env.PUBLIC_APP_URL, url),
+          name: user.name,
+        });
         await sendEmail(
           {
             to: user.email,

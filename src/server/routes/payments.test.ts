@@ -254,6 +254,7 @@ function envWith(db: D1Database): Env {
     ENVIRONMENT: "test",
     BETTER_AUTH_SECRET: "test-secret",
     BETTER_AUTH_URL: "http://localhost",
+    PUBLIC_APP_URL: "http://localhost",
   };
 }
 

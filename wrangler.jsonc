@@ -18,7 +18,11 @@
   },
   "vars": {
     "EMAIL_FROM": "no-reply@mail.visagismeai.com",
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "production",
+    // Public origin of the SPA, used to build email action links (verify/reset).
+    // Production value below. For local dev override to http://localhost:5173 via
+    // `.dev.vars` (PUBLIC_APP_URL=http://localhost:5173) or `wrangler dev --var`.
+    "PUBLIC_APP_URL": "https://calculadorafinanceira.app"
     // Secrets (NOT plaintext vars) — set via `wrangler secret put <NAME>`:
     //   BETTER_AUTH_SECRET, RESEND_API_KEY, TURNSTILE_SECRET_KEY
     //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET  (enable Google social login; see docs/google-oauth.md)
