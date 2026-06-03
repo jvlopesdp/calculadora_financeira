@@ -4,6 +4,8 @@ import { AppShell } from "@/app/app-shell";
 import { AuthLayout } from "@/app/auth-layout";
 import { NotFoundPage } from "@/app/not-found-page";
 import { ProtectedRoute } from "@/app/protected-route";
+import { LandingPage } from "@/features/landing/pages/landing-page";
+import { useSession } from "@/lib/queries/session";
 import { CheckEmailPage } from "@/features/auth/pages/check-email-page";
 import { ForgotPasswordPage } from "@/features/auth/pages/forgot-password-page";
 import { LoginPage } from "@/features/auth/pages/login-page";
@@ -18,10 +20,26 @@ import { HistoricoPage } from "@/features/historico/pages/historico-page";
 import { AlugarXFinanciarPage } from "@/features/simulator/pages/alugar-x-financiar-page";
 import { FinanciamentoPage } from "@/features/simulator/pages/financiamento-page";
 
+/**
+ * Rota raiz sensível à sessão: visitantes anônimos veem a LandingPage,
+ * usuários autenticados são redirecionados para o app (/financiamento).
+ * Enquanto a sessão carrega, não renderiza nada para evitar flicker.
+ */
+function RootRoute() {
+  const { user, isPending } = useSession();
+  if (isPending) {
+    return null;
+  }
+  if (user) {
+    return <Navigate to="/financiamento" replace />;
+  }
+  return <LandingPage />;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/financiamento" replace />} />
+      <Route path="/" element={<RootRoute />} />
 
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginPage />} />
