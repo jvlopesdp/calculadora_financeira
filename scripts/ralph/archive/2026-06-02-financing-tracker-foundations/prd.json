@@ -18,7 +18,7 @@
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -36,7 +36,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 2,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -52,7 +52,7 @@
         "Tests pass"
       ],
       "priority": 3,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -71,7 +71,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 4,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -90,7 +90,7 @@
         "Tests pass"
       ],
       "priority": 5,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -108,7 +108,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -127,7 +127,7 @@
         "Tests pass"
       ],
       "priority": 7,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -149,7 +149,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 8,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -168,7 +168,7 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 9,
-      "passes": true,
+      "passes": false,
       "notes": ""
     },
     {
@@ -193,8 +193,8 @@
         "Tests pass"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Automated gates green (typecheck/lint/test 777 passing). Browser walkthrough, email-HTML capture, and wrangler --dry-run are environment-blocked (no browser/email MCP; wrangler needs Node>=22) — deferred to manual smoke + CI."
+      "passes": false,
+      "notes": ""
     }
   ]
 }

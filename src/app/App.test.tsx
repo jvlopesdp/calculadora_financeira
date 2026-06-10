@@ -85,7 +85,44 @@ describe("AppRoutes", () => {
     document.documentElement.classList.remove("dark");
   });
 
-  it("redirects root to /financiamento", () => {
+  it("shows the landing page at root for anonymous visitors", () => {
+    setSession({ data: null, isPending: false });
+    renderAt("/");
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: /decisões financeiras com clareza/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /começar a simular/i }),
+    ).toHaveAttribute("href", "/financiamento");
+  });
+
+  it("redirects root to /financiamento for authenticated users", () => {
+    setSession({
+      data: {
+        user: {
+          id: "u_1",
+          email: "user@example.com",
+          name: "Usuário",
+          emailVerified: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        session: {
+          id: "s_1",
+          userId: "u_1",
+          token: "t",
+          expiresAt: new Date(Date.now() + 60_000),
+          ipAddress: "127.0.0.1",
+          userAgent: "test",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+      isPending: false,
+    });
     renderAt("/");
     expect(
       screen.getByRole("heading", {

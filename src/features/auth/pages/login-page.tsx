@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -91,6 +91,9 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const flashMessage = searchParams.get("flash");
+  const [showVerifiedBanner, setShowVerifiedBanner] = useState(
+    searchParams.get("verified") === "1",
+  );
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<LoginErrorKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -114,11 +117,18 @@ export function LoginPage() {
     setTurnstileToken(null);
   }, []);
 
+  useEffect(() => {
+    if (!showVerifiedBanner) return;
+    const timeoutId = setTimeout(() => setShowVerifiedBanner(false), 8000);
+    return () => clearTimeout(timeoutId);
+  }, [showVerifiedBanner]);
+
   const redirectTarget = resolveRedirectTarget(searchParams.get("next"));
 
   const onSubmit = form.handleSubmit(async (values) => {
     setErrorKind(null);
     setResendStatus("idle");
+    setShowVerifiedBanner(false);
     if (!turnstileToken) {
       setErrorKind({
         kind: "generic",
@@ -193,6 +203,15 @@ export function LoginPage() {
             className="mb-4 text-sm text-emerald-600 dark:text-emerald-400"
           >
             {flashMessage}
+          </p>
+        ) : null}
+        {showVerifiedBanner ? (
+          <p
+            role="status"
+            aria-live="polite"
+            className="mb-4 text-sm text-emerald-600 dark:text-emerald-400"
+          >
+            Seu e-mail foi verificado. Entre com seu acesso.
           </p>
         ) : null}
         <GoogleSignInButton next={searchParams.get("next")} />

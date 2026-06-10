@@ -2,11 +2,12 @@ import {
   IconCalculator,
   IconChartLine,
   IconHistory,
-  IconInnerShadowTop,
   IconScale,
 } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
 
+import { BrandLogo } from "@/components/brand/brand-logo";
+import { BrandMark } from "@/components/brand/brand-mark";
 import { NavMain, type NavMainItem } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
 import {
@@ -34,13 +35,11 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
-              className="data-[slot=sidebar-menu-button]:!p-1.5"
+              className="h-auto data-[slot=sidebar-menu-button]:!p-1.5"
             >
               <Link to="/financiamento">
-                <IconInnerShadowTop className="!size-5" />
-                <span className="text-base font-semibold">
-                  Calculadora Financeira
-                </span>
+                <BrandLogo className="hidden h-8 w-auto md:block" />
+                <BrandMark className="h-8 w-auto md:hidden" />
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

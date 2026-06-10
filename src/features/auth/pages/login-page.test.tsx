@@ -212,6 +212,20 @@ describe("LoginPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders the 'e-mail verificado' banner when ?verified=1 is present", () => {
+    renderLogin(["/login?verified=1"]);
+    expect(
+      screen.getByText(/seu e-mail foi verificado\. entre com seu acesso\./i),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render the 'e-mail verificado' banner without the verified param", () => {
+    renderLogin();
+    expect(
+      screen.queryByText(/seu e-mail foi verificado/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("translates TURNSTILE_INVALID errors to pt-BR", async () => {
     signInEmailMock.mockResolvedValueOnce({
       data: null,

@@ -1,548 +1,161 @@
 # Ralph Progress Log
-Started: Wed May 27 19:10:33 PDT 2026
+Started: Tue Jun  2 17:37:47 PDT 2026
 ---
 
 ## Codebase Patterns
-- Vite defines `__COMMIT_SHA__` (see vite.config.ts `define`); the server already declares it in `src/server/env.d.ts`. The SPA-side declaration lives in `src/vite-env.d.ts` so it's visible to `tsconfig.app.json` (which excludes `src/server`).
-- Tests live next to source as `*.test.ts(x)` and are picked up by `vitest run` (config in `vite.config.ts`). Always run `bun run test` in foreground only.
-- App entrypoints: `src/main.tsx` wires global providers (ThemeProvider, SimulationProvider, then `<App />`); `src/app/App.tsx` owns the router and now the QueryClientProvider. Avoid moving the QueryClientProvider into main.tsx because App.test.tsx renders `<AppRoutes />` directly without it (no providers needed for current tests).
-- Path alias `@/*` → `src/*` is configured in both tsconfig.app.json and vite.config.ts.
-- `src/tests/setup.ts` only imports `@testing-library/jest-dom/vitest`; jsdom is the global env.
-- Server-state hooks live in `src/lib/queries/*` (TanStack Query). queryKey convention: `['scenarios']` (list), `['scenario', id]` (detail), `['scenarios', scenarioId, 'payments']` via `paymentsQueryKey`. Mutations invalidate their list key in `onSuccess`. Plain `fetch` wrappers stay in `src/lib/api-client.ts` and are the queryFn bodies — don't call them directly from components, go through the hooks (or `useQueries` for dynamic lists).
-- TEST GOTCHA: any test rendering a component that uses a TanStack hook (`useQuery`/`useMutation`/`useQueryClient`) — including anything under `<AppRoutes/>` or `<AppShell/>` (the shell mounts `MigrateLocalSimulationDialog`) — must wrap the render in `<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>` or it throws "No QueryClient set".
-- Session = `useSession()` from `src/lib/queries/session.ts` (TanStack, queryKey `['session']`). It's the ONLY session source in app code — returns `{ user, session, isPending, isError }`, `null` response → `{ user: null, session: null }`. Sign-out is `useSignOut()` (POST /api/auth/sign-out → invalidates `['session']`). `@/lib/auth-client` (the Better Auth client) is reserved for the auth forms under `src/features/auth/**` (sign-in/up/reset) + the type re-exports in `session.ts`/`api-client.ts`. Don't reintroduce `use-current-user`.
-- TEST GOTCHA: when a test mocks `@/lib/queries/session`, the factory must export EVERY function the rendered tree calls. `NavUser` calls both `useSession` AND `useSignOut`; since `AppSidebar`/`AppShell` render `NavUser`, those tests' mocks need `useSignOut: () => ({ mutate: vi.fn() })` too — otherwise "No useSignOut export is defined on the mock". Mocks return the flattened `{ user, session, isPending, isError }` shape, not a raw `UseQueryResult`.
-- Better Auth: `createAuth(env)` (in `src/server/auth.ts`) runs fine with a fake `DB: {} as D1Database` (init is lazy w.r.t. queries) and the returned instance exposes the RAW options passed to `betterAuth()` on `.options`. So server tests can assert config (e.g. `createAuth(env).options.socialProviders`) by calling the REAL `createAuth` — no need to mock `betterAuth`. Mocking `better-auth` is risky because `better-auth/api` (`createAuthMiddleware`, used in the before-hook) imports from it.
-- Env-gated UI (e.g. `VITE_GOOGLE_ENABLED`): read `import.meta.env.X` AT RENDER (inside the component), not in a module-top const — only then does `vi.stubEnv('X','true')` (+ `vi.unstubAllEnvs()` in afterEach) take effect in tests. Keep the gating + any sibling markup INSIDE the component and export only the component, to avoid the `react-refresh/only-export-components` warning.
-- KNOWN FLAKY (under heavy load only): the full `bun run test` can exit code 1 due to ~4 post-teardown "Unhandled Rejection: BetterAuthError: Failed to initialize database adapter" from `src/server/auth-google.test.ts`, even with all tests passing. It passes 4/4 in isolation (`vitest run src/server/auth-google.test.ts`). It's a lazy D1-adapter init race in the REAL `createAuth`, not a real failure.
-- D1 migrations: lowercase SQL with double-quoted identifiers; FKs are `references "user" ("id") on delete cascade` (the Better Auth user table is `"user"`). Apply locally with `bunx --bun wrangler d1 migrations apply calculadora-financeira-db --local` (or `bun run db:migrate:local`); migrations live in `migrations/` (configured in wrangler.jsonc). Files are numbered `000N_name.sql`.
-- D1 upsert pattern (SQLite): `insert into "t" (...) values (?,?) on conflict("pk_col") do update set "c" = excluded."c"`. Use this for one-row-per-user / one-per-key tables.
-- Tracker schema (migration 0005): `tracker_plans` (one per plan, FK `user_id`→`"user"`) + `tracker_entries` (FK `plan_id`→`tracker_plans`, `unique(plan_id, month_index)`). Money in `*_cents`, rate in `annual_rate_bp` (basis points). Enum-ish columns use SQLite `check(... in (...))`: `modality in ('PRICE','SAC')`, `apply_mode in ('reduce_term','reduce_installment')`. Indexes: `tracker_plans_user_id_idx`, `tracker_entries_plan_id_idx(plan_id, month_index)`. So US-010/011 routes must convert BRL→cents and %→bp like scenarios.ts before insert.
-- Server route ordering GOTCHA: in a Hono sub-app, register STATIC paths (e.g. `get("/draft")`) BEFORE param paths (`get("/:id")`) so the static path wins. Sub-apps mounted in `src/server/index.ts` that bring their own `requireUser` must be mounted BEFORE the generic `app.use("/api/*", requireUser)`; more specific mount paths (e.g. `/api/scenarios/:scenarioId/payments`) go before less specific (`/api/scenarios`).
-- Tracker routes status codes (US-010/011): validation failures (Zod + business rules like downPayment>=propertyValue, paid_amount<parcela) return **422** (NOT 400 like scenarios/payments). Malformed JSON still returns 400 (`invalid_json`). `GET /api/tracker/plans/:id` returns `{ plan, entries }`; ownership is enforced via `and "user_id" = ?` in the SELECT → 404 when not owned. PUT edits only name + target_monthly_total (term/property/modality immutable). Mount order in index.ts: tracker-entries (`/api/tracker/plans/:planId/entries`) BEFORE tracker-plans (`/api/tracker/plans`), both before the generic `app.use("/api/*", requireUser)`.
-- Server test FakeD1 (`src/server/routes/*.test.ts`): a hand-rolled in-memory D1 stub whose `prepare(sql)` dispatches on `sql.startsWith(...)` and THROWS on unrecognised SQL — so any new query needs a matching branch in `run()`/`first()`/`all()`, or the test fails loudly. `buildApp(userId)` mocks `createAuth` to return a fake session; the 401 path mocks `getSession: async () => null`.
-- PROVIDER ORDERING GOTCHA: `SimulationProvider` is mounted in `src/main.tsx` ABOVE `<App/>`, and `App.tsx` is where `<QueryClientProvider>` lives. So `SimulationProvider` sits ABOVE the QueryClient and CANNOT use TanStack hooks (`useSession`/`useQuery`). Any simulator code that needs server-state must run in a component BELOW the routes (e.g. inside `FinancingForm`, which is rendered by `FinanciamentoPage`), not in the provider. This is why `useSimulatorDraft` lives in the form, not the provider.
-- Simulator draft autosave: `src/features/simulator/lib/simulator-draft.ts` owns the `FinancingDraft` type + localStorage helpers (key `sim-draft-v1`). `useSimulatorDraft()` (in `src/features/simulator/hooks/`) restores (localStorage sync first render; D1 `GET /api/scenarios/draft` preferred once it resolves for logged-in users, guarded so a late query never overwrites typed input) and debounce-saves (localStorage always + D1 PUT when logged in). The draft payload is the RAW financing form input (partial/invalid OK), not validated `FinancingFormValues`.
-- Server can import the finance engine: server route files (`src/server/**`) may import `@/core/finance/*` (the `@/`→`src/*` alias is configured in tsconfig.server.json paths AND vite.config.ts resolve.alias, so typecheck, vitest, and the worker bundle all resolve it). Reuse `generatePriceSchedule`/`generateSacSchedule` (from `@/core/finance/amortization`) + `annualToMonthlyRate` (from `@/core/finance/rent-vs-buy`) instead of duplicating amortization math. Unit conversion to feed the engine from a tracker plan row: `principal = (property_value_cents - down_payment_cents)/100`, `monthlyRate = annualToMonthlyRate(annual_rate_bp/10000)`; the schedule installment is BRL Decimal (2dp), so `installmentCents = round(installment.times(100))`.
-- Tracker entries (US-011): mounted at `/api/tracker/plans/:planId/entries` BEFORE `/api/tracker/plans` in index.ts. The `:planId` param is read inside the sub-app via `c.req.param("planId")` (same trick as payments' `:scenarioId`). Ownership = `select * from "tracker_plans" where "id" = ? and "user_id" = ?` (full row, since installment validation needs modality/term/rate) → 404 if not owned. POST is an UPSERT (`on conflict ("plan_id","month_index") do update set ...` keeping id+created_at), returns **200** (NOT 201) with `{ entry }` (re-selected after upsert). Hard rule: `paid_amount_cents >= normalSchedule installment of that month` → else **422** (pt-BR message). PATCH edits paid_amount/apply_mode/note only (never month_index); when paid_amount changes it re-validates against the installment for the EXISTING row's month_index.
-- Acompanhamento feature (US-015+) lives in `src/features/acompanhamento/`. Routes are nested under `<ProtectedRoute/>` inside `<AppShell/>` in `src/app/routes.tsx` (so `/acompanhamento*` inherits the `?next=` login redirect for free). Sidebar nav items are defined in `src/components/app-sidebar.tsx`'s `baseNavMain` (NOT in nav-main.tsx, which is the generic renderer); protected items are filtered out for anonymous users via the `protectedNavUrls` Set (`/historico` + `/acompanhamento`). When adding a new top-level route, ALSO extend `getPageTitle` in `site-header.tsx` AND its parameterised table in `site-header.test.tsx`. Server-state hook is `useTrackerPlans()` in `src/lib/queries/tracker-plans.ts` (queryKey `['tracker-plans']`; detail helper `trackerPlanQueryKey(id)` → `['tracker-plan', id]` reserved for US-017). Client row type is `TrackerPlanApi` in `src/lib/api-client.ts` (mirrors server `TrackerPlanRow`: `*_cents`, `annual_rate_bp`, snake_case). List-page principal = `(property_value_cents - down_payment_cents)/100`, formatted with `formatBRL`.
-- Tracker engines (US-012+) live in `src/core/finance/tracker/`. `normalSchedule.ts` exports `normalSchedule(plan: TrackerPlanInput): ScheduleMonth[]` — a thin adapter that delegates to `generatePriceSchedule`/`generateSacSchedule` and renames `ScheduleRow.month` → `ScheduleMonth.monthIndex` (other fields unchanged: installment/interest/amortization/balance, all `Decimal`). `TrackerPlanInput = { principal: Decimal (BRL), monthlyRate: Decimal (fração), termMonths, modality: 'PRICE'|'SAC' }` — engine is unit-agnostic, the CALLER does cents→BRL and bp→fração (`principal = (property_value_cents - down_payment_cents)/100`, `monthlyRate = annualToMonthlyRate(annual_rate_bp/10000)`). Reuse this `ScheduleMonth`/`TrackerPlanInput` in US-013 (realizedSchedule) and US-014 (goalSchedule). Note US-011's `installmentCentsForMonth` predates this and still calls the raw primitives directly — could be refactored to call `normalSchedule` but isn't required.
-- Tracker curves chokepoint (US-017): `src/features/acompanhamento/lib/build-curves.ts` `buildCurves(plan: TrackerPlanApi, entries: TrackerEntryApi[]) → TrackerCurves` is the SINGLE place that converts the plan row (cents→BRL, bp→fração via `annualToMonthlyRate`) and builds `entriesByMonth: Map<number, RealizedEntry>` (paid_amount_cents/100, apply_mode 1:1), then calls all three engines. It also exposes `hasEntries` + `lastEntryMonth` (= max month_index). KPIs are built from the curves in `build-tracker-kpis.ts` (`buildTrackerKpis(curves): KpiCardData[]`) — NOT in the page (SectionCards convention). All 4 KPIs are "—" when `!hasEntries`; otherwise: Saldo atual = realized balance at `lastEntryMonth` (0 if truncated/paid off), Juros pagos = Σ realized interest for month ≤ lastEntryMonth, Economia de juros = ΣnormalInterest − ΣrealizedInterest, Meses reduzidos = `normal.length − realized.months.length`. US-018+ (planilha/gráfico) should reuse `buildCurves` (and its `entriesByMonth`/curves) rather than re-deriving.
-- Tracker spreadsheet (US-018): `src/features/acompanhamento/components/tracker-spreadsheet.tsx` wraps the generic `<DataTable/>` in a Card (same wrap pattern as `amortization-table.tsx`). Props are `{ plan, entries, curves }` — it does NOT re-call `buildCurves`; the detail page passes its single memoized `curves` down (reuses `curves.normal` for "Parcela prevista" and `curves.realized.months` for "Saldo após"). One row per `plan.term_months`; a month is "settled" (`realizedRow === undefined` i.e. index ≥ `realized.months.length`) when truncated by early payoff → renders "Quitado". Pago/Modo/Nota read straight from raw `entries` (not from `curves.entriesByMonth`, which lacks `note`). Due dates use a local `addMonthsToIso(startIso, monthIndex-1)` helper (manual YYYY-MM-DD math + `new Date(y,m,0).getDate()` for day clamp — NO `new Date(iso)`, avoids TZ shift, same rule as `formatIsoDate`). Render-test gotcha: the spreadsheet now repeats dates/values that the page header also shows, so page tests asserting header metadata must scope with `within(getByTestId("acompanhamento-detail-toolbar"))`.
-- Optimistic entry mutations (US-019) in `src/lib/queries/tracker-plans.ts`: `useUpsertTrackerEntry(planId)` + `useDeleteTrackerEntry(planId)` take the planId as a hook arg (NOT a mutation var) and mutate the `['tracker-plan', planId]` detail cache (`TrackerPlanDetail = { plan, entries }`). Pattern: `onMutate` → `cancelQueries` + snapshot `previous` + `setQueryData` (upsert by month_index / filter by id), return `{ previous }`; `onError(_e,_v,ctx)` → `setQueryData(key, ctx.previous)` rollback; upsert's `onSuccess(entry)` reconciles the optimistic row with the canonical server row (real id/created_at). The SPREADSHEET drives the UI off the cache, so the detail page's `useTrackerPlan` re-renders → `buildCurves` recomputes → balances update instantly. NO toast lib in this project (sonner absent) — surface mutation/API errors as an inline `role="alert"` banner (`data-testid="tracker-spreadsheet-error"`), same convention as the auth flow's aria-live messages. Client-side `paid >= scheduledInstallment` check (cent-rounded) blocks the save BEFORE calling the mutation (mirrors the server's 422), shown as a per-row `role="alert"`.
-- Cache-driven component test (US-019): to test that an optimistic mutation re-renders a presentational component that takes data as PROPS, render a tiny harness that reads the cache via the real hook (`useTrackerPlan(id)`) + `buildCurves` and passes the result down — seed the cache with `qc.setQueryData(trackerPlanQueryKey(id), { plan, entries })` and use a QueryClient with `staleTime: Infinity` so the seeded data never triggers a background refetch (which would hit the mocked `fetch`). Stub `fetch` to return a Response-like `{ ok, status, statusText, json }`; a successful huge month-1 payment (reduce_term) pays the loan off → assert trailing rows show "Quitado"; a 422 (`ok:false`) → assert rollback (no "Quitado") + the error banner text.
-- Tracker due-date helpers live in `src/features/acompanhamento/lib/due-date.ts` (`dueDateBR`/`dueDateIso`, both = start_date "YYYY-MM-DD" + N months, manual math + day-clamp, NO `new Date(iso)`). Extracted from the spreadsheet in US-021 and reused by `tracker-what-if-dialog.tsx`. US-022 (export) should reuse these for the "Vencimento" column instead of re-implementing.
-- What-if simulation (US-021): `src/features/acompanhamento/lib/simulate-what-if.ts` `simulateWhatIf(curves, { month, paidAmount: Decimal, applyMode })` is the pure chokepoint — it COPIES `curves.entriesByMonth`, sets the hypothetical month, and re-runs `realizedSchedule(curves.planInput, map)` (no API, no new finance math). Returns `{ payoffMonth, monthsSavedVsNormal (vs Normal term), interestSaved (Decimal, vs CURRENT realized), installmentsSaved (vs CURRENT realized) }`. Baseline for the "economizados" numbers is the current Realized trajectory (the marginal impact of THIS payment), not Normal — only the payoff-date card is framed vs Normal. The dialog (`tracker-what-if-dialog.tsx`) is mounted on the detail page (controlled `open`/`onOpenChange`, reset via `useEffect([open])`), uses `useUpsertTrackerEntry(plan.id)` for "Aplicar este lançamento", and blocks values below `curves.normal[month-1].installment` (the API's 422 floor) before computing/applying. Min paid = Normal installment of the selected month (same floor the spreadsheet/server use).
-- Tracker Excel export (US-022): `src/features/acompanhamento/lib/export-tracker.ts` `exportTracker(plan, entries)` calls `buildCurves` (NO new finance math) + `dueDateBR` and emits 6 sheets via lazy `await import("xlsx")` (same triggerDownload a-tag pattern as the simulator's `excel-export.ts`). `TRACKER_SHEET_NAMES = ['Plano','Lançamentos','Cronograma Realizado','Cronograma Normal','Cronograma Meta','Comparativo']` (all ≤31 chars). Cell helpers (`txt`/`money`/`integer`/`percent`, `CURRENCY_FORMAT='R$ #,##0.00'`, `PERCENT_FORMAT='0,00%'`) are LOCAL copies of the simulator export's private helpers (those aren't exported) — small format consts, not "duplicated logic". Schedule sheets pad rows AFTER early payoff (months beyond `curve.months.length`) as status "Quitado" with parcela/juros/amort/saldo = 0 up to `term_months`, so all three line up against Normal (which always runs full term). Meta sheet: when `curves.goal.invalidAtMonth != null` it returns a 2-row note ("Valor-meta menor que a parcela inicial…") instead of a schedule; Comparativo's "Saldo Meta" column shows "—" in that case. Comparativo emits exactly `term_months` DATA rows (+1 header). Test mocks `xlsx` via `vi.doMock` + `vi.resetModules()` + dynamic re-import (xlsx is imported lazily INSIDE exportTracker, so the doMock is picked up) — identical to `excel-export.test.ts`. The `.click()` triggers a harmless jsdom "Not implemented: navigation" stderr even when spied; ignore it. Button = `tracker-export-button.tsx` (`{plan,entries}` props, loading/error state) mounted in the detail-page toolbar.
-- Detail/delete hooks (US-017) in `src/lib/queries/tracker-plans.ts`: `useTrackerPlan(id)` (queryKey `trackerPlanQueryKey(id)` = `['tracker-plan', id]`, `enabled: Boolean(id)`, queryFn `getTrackerPlan` → `{ plan, entries }` shape from GET /:id) + `useDeleteTrackerPlan()` (DELETE, invalidates `['tracker-plans']` + `removeQueries` the detail key). 404 surfaces as `ApiError` with `.status === 404` (check `planQuery.error instanceof ApiError && .status===404` for the not-found alert, like historico-detalhe). Confirmation modal pattern = a dedicated `<DeleteTrackerPlanDialog>` (mirrors `DeletePaymentDialog`: Dialog + DialogClose Cancelar + destructive confirm, `mutateAsync` then `onDeleted` → navigate). TEST GOTCHA: page renders the dialog, so a test mocking `@/lib/queries/tracker-plans` must export BOTH `useTrackerPlan` and `useDeleteTrackerPlan`; mock `@/components/ui/dialog` with passthroughs (Dialog renders children only when `open`) to dodge the Radix portal in jsdom; mock `useParams` to supply `:id`.
-- Worker default export shape (US-023): `src/server/index.ts` now exports `export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Env>` (Hono `app.fetch` is bound, safe to reference standalone). The Hono instance is ALSO exported as a NAMED export `{ app }` — server tests that drive routes via `app.request(...)` (`health.test.ts`, `auth-rate-limit-response.test.ts`) import `{ app }`, NOT the default. Cron triggers go in `wrangler.jsonc` under top-level `"triggers": { "crons": [...] }`. The `scheduled(controller, env, ctx)` handler reads `env.DB`; D1 `run()` returns `{ meta: { changes } }` for the deleted-row count. Workers structured logging = `console.log({ event: '...', ... })` (observability already enabled in wrangler.jsonc). FakeD1 for the scheduled test (`src/server/scheduled.test.ts`) only needs a `delete from "verification"` branch returning `meta.changes`; use `vi.useFakeTimers()`/`setSystemTime` to pin `Date.now()` and `vi.spyOn(console,'log')` to assert the structured log.
+- Static assets live under `public/` (Vite default `publicDir`; there is no explicit `publicDir` in vite.config.ts). Files in `public/` are copied verbatim to `dist/client/` at build. Reference them by absolute path from the SPA (e.g. `/brand/icon.svg`).
+- Build is `tsc -b && vite build` via the @cloudflare/vite-plugin; **vite build is SLOW (~6 min)** because it bundles xlsx + fonts. Run builds in background and poll the process, not the output file (output is buffered until the end).
+- `bun run typecheck` = `tsc -b --noEmit`; `bun run lint` = `eslint .`; `bun run test` = `vitest run` (foreground only).
+- `Env` (`src/server/env.d.ts`) has all-required fields. Adding a new required field breaks every fake-`Env` in `src/server/**/*.test.ts` — grep `BETTER_AUTH_URL:` and add the field next to it in each.
+- Server auth/url logic is written as pure exported helpers and unit-tested directly (never instantiate `betterAuth()` — it starts a background D1 init promise that rejects with a fake DB). See `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl` in `auth.ts`.
+- `wrangler` CLI requires Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs cannot be executed here — defer to CI.
+- Rasterize brand SVGs with ImageMagick: `convert -background none -density 300 -resize WxH in.svg out.png` (`/usr/bin/convert` exists; `rsvg-convert`/`inkscape`/`magick` do not). NOTE: `logo-nome.svg` is a WHITE wordmark — never place it on white/cream; back it with a dark/brand-colored fill.
+- Transactional emails (`src/server/email-templates.ts`) go through `renderBrandedEmail` — keep CSS fully inline (no `<style>`), pass RAW (unescaped) `name`/`url` (the helper escapes everything), and thread `publicAppUrl: env.PUBLIC_APP_URL` for the logo/footer links.
+
+## 2026-06-02 17:50 - US-001
+- Moved brand SVGs into a dedicated stable folder and wired them for build.
+- Created `public/brand/`. Moved root `logo-nome.svg` → `public/brand/logo-nome.svg`, `logo-calculadora-financeira.svg` → `public/brand/logo-mark.svg`, `icon-theme.svg` → `public/brand/icon.svg`. Originals removed from repo root by the move.
+- No `public/vite.svg` existed (the repo had no `public/` dir at all); `/vite.svg` is only referenced in `index.html` and will be replaced in US-002.
+- Files changed: added `public/brand/{logo-nome.svg,logo-mark.svg,icon.svg}`; removed root SVGs.
+- Verified: `bun run typecheck` passes; `bun run build` succeeds and emits `dist/client/brand/{logo-nome.svg,logo-mark.svg,icon.svg}`.
+- **Learnings for future iterations:**
+  - The first build on this branch took ~6m14s — budget time accordingly; subsequent incremental builds may be faster.
+  - `logo-nome.svg` is large (~20KB) and is the full wordmark; `logo-mark.svg` (~865B) is the compact mark; `icon.svg` (~950B) is the favicon/touch icon. US-002 should point favicon + apple-touch-icon at `/brand/icon.svg`.
+  - US-003 BrandLogo uses `/brand/logo-nome.svg`; BrandMark uses `/brand/logo-mark.svg`.
 ---
 
-## 2026-05-27 - US-001 — TanStack Query + persister
-- Implemented:
-  - Added `@tanstack/react-query`, `@tanstack/query-sync-storage-persister`, `@tanstack/react-query-persist-client` to package.json (via `bun add`).
-  - `src/lib/query-client.ts` exports a `QueryClient` with defaultOptions { queries: { staleTime: 5min, gcTime: 24h, refetchOnWindowFocus: false } } and a `SESSION_QUERY_KEY` sentinel (`['session']`).
-  - `src/lib/query-persister.ts` exports `startQueryPersister()` (idempotent) that wires `persistQueryClient` against `localStorage` with key `cf-app-query-v1`, buster `__COMMIT_SHA__`, and a `shouldDehydrateQuery` that excludes the `['session']` queryKey (to satisfy US-003 ahead of time) and only persists `status === 'success'` queries.
-  - `src/app/App.tsx` now wraps `<AppRoutes/>` in `<QueryClientProvider client={queryClient}>` and calls `startQueryPersister()` at module load (side effect, before render).
-  - `src/vite-env.d.ts` adds `declare const __COMMIT_SHA__: string;` so the SPA tsconfig sees the Vite-defined global (server-side already had its own declaration).
-  - Tests: `src/lib/query-client.test.ts` (default options + session key) and `src/lib/query-persister.test.ts` (asserts persister registered with correct key/buster, session query is excluded, idempotent across calls).
-- Files changed:
-  - package.json, bun.lockb
-  - src/app/App.tsx
-  - src/lib/query-client.ts (new)
-  - src/lib/query-persister.ts (new)
-  - src/lib/query-client.test.ts (new)
-  - src/lib/query-persister.test.ts (new)
-  - src/vite-env.d.ts
-- Quality: `bun run typecheck`, `bun run lint`, `bun run test` all pass (585 tests, 55 files; only pre-existing site-header.tsx warning remains).
+## 2026-06-02 18:45 - US-002
+- Updated `index.html` with brand favicon, title, and metadata.
+- Changes in `index.html`: favicon `<link rel="icon">` now points to `/brand/icon.svg` (was `/vite.svg`); added `<link rel="apple-touch-icon" href="/brand/icon.svg">`; added `<meta name="theme-color" content="#B94F45">`; added `<meta name="description">` (≤160 chars); `<title>` changed from 'Simulador Financeiro' to 'Calculadora Financeira.app'.
+- Files changed: `index.html`.
+- Verified: `grep -rn 'vite.svg' src/ index.html public/` returns nothing; `bun run typecheck` passes; `bun run lint` passes (0 errors, only a pre-existing react-refresh warning in site-header.tsx).
+- Browser verification: NO browser/dev-browser MCP tooling is available in this environment — manual browser verification of favicon + tab title still needed (NOK for automated check, but functionally trivial for a static index.html change).
 - **Learnings for future iterations:**
-  - The TanStack `persistQueryClient` API takes a single options object — the `dehydrateOptions.shouldDehydrateQuery` predicate is what controls per-query persistence (NOT a top-level filter).
-  - To compare a queryKey against `['session']` in `shouldDehydrateQuery`, compare length + each element — `queryKey.includes('session')` is brittle if the key shape changes.
-  - Module top-level side effects (`startQueryPersister()` in App.tsx) are safe here because `App.test.tsx` renders `<AppRoutes />` directly, never importing `App.tsx`. Keep that invariant in future stories that touch App.tsx.
-  - When writing a vitest test that uses `vi.resetModules()` + dynamic `import()`, also re-import any sibling module whose identity matters (`queryClient` here), otherwise referential equality checks fail because the top-level import captured the pre-reset instance.
-  - For React Query v5, `gcTime` replaces v4's `cacheTime`. Use `gcTime` directly in defaults.
+  - No browser MCP is configured here; stories with "Verify in browser" ACs cannot be auto-verified — note manual verification and rely on typecheck/lint/tests.
+  - `index.html` lives at repo root (`/workspace/index.html`), not under `src/` or `public/`. The description meta uses the exact suggested copy. Title is the canonical brand string 'Calculadora Financeira.app' — reuse this exact casing elsewhere (alt-text, og tags) for consistency.
+  - Editing `index.html` triggers a harmless "LF will be replaced by CRLF" git warning on this checkout.
 ---
 
-## 2026-05-27 - US-002 — api-client refatorado em hooks TanStack Query
-- Implemented:
-  - `src/lib/queries/scenarios.ts` (novo): `useScenarios({ enabled? })`, `useScenario(id)`, `useCreateScenario()`, `useUpdateScenario()`, `useDeleteScenario()`; exporta `SCENARIOS_QUERY_KEY` (`['scenarios']`) e `scenarioQueryKey(id)` (`['scenario', id]`). Mutations invalidam `['scenarios']` (onSuccess) e semeiam a chave de detalhe via `setQueryData`.
-  - `src/lib/queries/payments.ts` (novo): `usePayments(scenarioId)`, `useCreatePayment()`, `useUpdatePayment()`, `useDeletePayment()`; exporta `paymentsQueryKey(scenarioId)` (`['scenarios', scenarioId, 'payments']`). Mutations invalidam a lista de pagamentos do cenário.
-  - `src/lib/api-client.ts`: adicionadas funções plain `updateScenario(id, input)` (PATCH) e `deleteScenario(id)` (DELETE, soft-archive) + tipo `UpdateScenarioInput`. As funções plain continuam exportadas para reuso interno dos hooks.
-  - Refatorados para usar hooks (sem `useEffect(fetch)` para server-state): `historico-page.tsx` (useScenarios + useQueries p/ pagamentos), `historico-detalhe-page.tsx` (useScenario + usePayments; cache atualizado via setQueryData no save/delete), `new-scenario-dialog.tsx`, `payment-form-dialog.tsx`, `delete-payment-dialog.tsx`, `scenario-combobox.tsx` (lazy via flag `enabled`), `migrate-local-simulation-dialog.tsx`.
-  - Tests: `src/lib/queries/scenarios.test.tsx` e `payments.test.tsx` (novos) cobrindo fetch, gating por `enabled`/`id`, e invalidação de queryKeys. Atualizados `scenario-combobox.test.tsx`, `migrate-local-simulation-dialog.test.tsx`, `App.test.tsx`, `financiamento-page.test.tsx` para envolver render em `<QueryClientProvider>`.
-- Files changed:
-  - src/lib/api-client.ts
-  - src/lib/queries/scenarios.ts (new), src/lib/queries/payments.ts (new)
-  - src/lib/queries/scenarios.test.tsx (new), src/lib/queries/payments.test.tsx (new)
-  - src/features/historico/pages/historico-page.tsx, historico-detalhe-page.tsx
-  - src/features/historico/components/{new-scenario-dialog,payment-form-dialog,delete-payment-dialog,scenario-combobox,migrate-local-simulation-dialog}.tsx
-  - src/features/historico/components/{scenario-combobox,migrate-local-simulation-dialog}.test.tsx
-  - src/app/App.test.tsx
-  - src/features/simulator/pages/financiamento-page.test.tsx
-- Quality: `bun run typecheck`, `bun run lint` (só o warning pré-existente em site-header.tsx), `bun run test` (595 testes, 57 arquivos) — todos passam.
+## 2026-06-02 18:52 - US-003
+- Created reusable React brand components `BrandLogo` and `BrandMark`.
+- Files changed: added `src/components/brand/brand-logo.tsx`, `src/components/brand/brand-mark.tsx`, `src/components/brand/brand-logo.test.tsx`, `src/components/brand/brand-mark.test.tsx`.
+- `BrandLogo` renders `<img src="/brand/logo-nome.svg" alt="Calculadora Financeira.app" loading="eager">`; `BrandMark` uses `/brand/logo-mark.svg`. Both take an optional `className` prop (strict interface, no `any`).
+- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); brand tests pass (4/4) via `bun run test -- src/components/brand`.
 - **Learnings for future iterations:**
-  - O `QueryClientProvider` de produção vive em `src/app/App.tsx` (acima do `BrowserRouter`), NÃO em main.tsx nem em AppRoutes. Qualquer teste que renderize `<AppRoutes/>`, `<AppShell/>` ou um componente do feature `historico` precisa envolver o render num `<QueryClientProvider client={new QueryClient(...)}>`, senão `useQueryClient` lança "No QueryClient set". Use `{ defaultOptions: { queries: { retry: false } } }` nos testes para falhar rápido.
-  - Convenção de queryKeys deste app: scenarios → `['scenarios']`; detalhe → `['scenario', id]`; pagamentos de um cenário → `['scenarios', scenarioId, 'payments']` (via helper `paymentsQueryKey`). Mantenha mutations invalidando essas chaves no `onSuccess`.
-  - Para listas dinâmicas (N cenários → N consultas de pagamentos) use `useQueries` chamando a função plain `listPayments` no `queryFn` (compartilha o mesmo `paymentsQueryKey` que `usePayments`), em vez de useEffect manual.
-  - `useScenarios` aceita `{ enabled }` para preservar o lazy-load do `ScenarioCombobox` (só busca após o primeiro open). Com cache do TanStack, abrir o dropdown várias vezes dispara o fetch só uma vez — o teste "does not refetch on subsequent opens" valida isso sem `vi`.
-  - `MigrateLocalSimulationDialog` agora usa `useCreateScenario()`; como ele é montado no `AppShell`, o teste `financiamento-page.test.tsx` (que não mocka api-client) passou a precisar do provider.
+  - Test pattern: smoke-test `<img>` via `screen.getByAltText("Calculadora Financeira.app")` then assert `toHaveAttribute("src", ...)`. Both logos share the same alt-text, so when both are mounted in the same tree (e.g. US-004 AppShell with responsive show/hide), query by `src` or use `getAllByAltText` to disambiguate.
+  - US-004 will wrap these in `<Link>` (BrandLogo → /financiamento in AppShell, → / in AuthLayout) and apply responsive classes (`hidden md:block` / `md:hidden`).
+  - Vitest startup here is heavy (~50s for env/collect even for 2 trivial files); scope `bun run test -- <path>` to the story's files when iterating.
 ---
 
-## 2026-05-27 - US-003 — useSession via TanStack Query como única fonte de verdade da sessão
-- Implemented:
-  - `src/lib/queries/session.ts` (novo): `useSession()` (queryKey `['session']` via `SESSION_QUERY_KEY`, queryFn `getSession`) devolve `{ user, session, isPending, isError }`, com resposta `null` virando `{ user: null, session: null }`. `useSignOut()` é uma mutation que chama `signOutRequest` (POST /api/auth/sign-out) e invalida `['session']` no `onSuccess`.
-  - `src/lib/api-client.ts`: novas funções plain `getSession()` (GET /api/auth/get-session, devolve `SessionResponse | null`) e `signOutRequest()` (POST /api/auth/sign-out); novo tipo `SessionResponse { user: AuthUser; session: AuthSession }` (importa os tipos de `./auth-client`).
-  - Removidos `src/lib/use-current-user.ts` e `.test.ts` (a antiga ponte sobre `authClient.useSession`).
-  - Migrados de `useCurrentUser` → `useSession`: `src/app/protected-route.tsx` (`isLoading` → `isPending`), `src/components/app-sidebar.tsx`, `src/components/nav-user.tsx` (sign-out agora via `useSignOut().mutate(undefined, { onSuccess })` em vez de `authClient.signOut`), `src/features/historico/components/migrate-local-simulation-dialog.tsx`.
-  - Tests: `src/lib/queries/session.test.tsx` (novo) cobre user/session derivados, resposta null → anônimo, isError no reject, e que `useSignOut` posta e invalida `['session']`. Atualizados `App.test.tsx`, `app-sidebar.test.tsx`, `nav-user.test.tsx`, `migrate-local-simulation-dialog.test.tsx` para mockar `@/lib/queries/session`.
-  - Persister já excluía `['session']` desde US-001 (`shouldDehydrateQuery` em `query-persister.ts`) — nenhuma mudança necessária.
-  - `grep '@/lib/auth-client'` em `src/` agora só aparece em `session.ts` (import de tipos) e nas páginas/forms de auth (`src/features/auth/**`), conforme o critério.
-- Files changed:
-  - src/lib/queries/session.ts (new), src/lib/queries/session.test.tsx (new)
-  - src/lib/api-client.ts
-  - src/lib/use-current-user.ts (deleted), src/lib/use-current-user.test.ts (deleted)
-  - src/app/protected-route.tsx
-  - src/components/app-sidebar.tsx, src/components/nav-user.tsx
-  - src/features/historico/components/migrate-local-simulation-dialog.tsx
-  - src/app/App.test.tsx, src/components/app-sidebar.test.tsx, src/components/nav-user.test.tsx, src/features/historico/components/migrate-local-simulation-dialog.test.tsx
-  - src/components/CLAUDE.md (doc do NavUser/AppSidebar atualizada para useSession/useSignOut)
-- Quality: `bun run typecheck` ok, `bun run lint` ok (só o warning pré-existente em site-header.tsx), `bun run test` 595 testes em 57 arquivos — todos passam.
+## 2026-06-02 18:59 - US-004
+- Applied BrandLogo/BrandMark to the authenticated AppShell (sidebar header) and the AuthLayout.
+- `src/components/app-sidebar.tsx`: replaced the `IconInnerShadowTop` + "Calculadora Financeira" `<span>` placeholder inside the existing `<Link to="/financiamento">` with `<BrandLogo className="hidden h-8 w-auto md:block" />` + `<BrandMark className="h-8 w-auto md:hidden" />` (responsive: wordmark on >=md, compact mark on mobile). Removed the now-unused `IconInnerShadowTop` import. Gave the SidebarMenuButton `h-auto` so the taller logo isn't clipped.
+- `src/app/auth-layout.tsx`: removed the old `<header>` + serif "Calculadora Financeira" `<span>`; render a centered `<BrandLogo className="h-10 w-auto" />` wrapped in `<Link to="/">` above the `<Outlet />`.
+- Added `src/app/auth-layout.test.tsx`: asserts the BrandLogo renders with `/brand/logo-nome.svg` and its link points to `/`, and that the routed outlet content renders.
+- Files changed: `src/components/app-sidebar.tsx`, `src/app/auth-layout.tsx`, `src/app/auth-layout.test.tsx`.
+- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); tests green — app-sidebar (5), site-header (15), brand (4), App routing (8), protected-route (4), auth-layout (2).
+- The literal string 'Simulador Financeiro' was already absent from `src/` (the prior placeholder was the brand text + Vite icon "Calculadora Financeira"); AC satisfied. AppShell page-title fallback "Calculadora Financeira" in `site-header.tsx getPageTitle` is a route title (not a logo placeholder) and is intentionally kept.
+- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual browser check of the logo in the sidebar/auth pages and the mobile BrandMark swap still needed.
 - **Learnings for future iterations:**
-  - GOTCHA: ao trocar um hook por outro num componente do shell, os testes que MOCKAM `@/lib/queries/session` precisam exportar TODAS as funções que o componente chama. `NavUser` usa `useSession` E `useSignOut`; `app-sidebar.test.tsx` renderiza `NavUser` indiretamente, então seu mock teve que ganhar `useSignOut: () => ({ mutate: vi.fn() })` além de `useSession` — senão vitest lança "No useSignOut export is defined on the mock".
-  - O contrato do `useSession()` é `{ user, session, isPending, isError }` (não `{ data, isLoading }`). Mocks nos testes devem devolver esse shape achatado, não o `UseQueryResult` cru do TanStack.
-  - `getSession()` chama `GET /api/auth/get-session` do Better Auth, que responde `200` com `null` quando não há cookie de sessão — por isso o tipo é `SessionResponse | null` e o hook normaliza para anônimo.
+  - The "logo placeholder" the PRD calls 'Simulador Financeiro' actually lived as `IconInnerShadowTop` + a "Calculadora Financeira" text span in `app-sidebar.tsx`, and a serif text span in `auth-layout.tsx`. Both are now brand components.
+  - `app-sidebar.test.tsx` queries the brand link by `getByRole("link", { name: /calculadora financeira/i })` — the BrandLogo/BrandMark `alt="Calculadora Financeira.app"` satisfies this regex, so the test stayed green without edits. Both imgs share that alt, so within the single sidebar link the accessible name is the alt repeated — still matches.
+  - In jsdom the Tailwind `hidden`/`md:block` classes don't apply (no CSS), so both BrandLogo and BrandMark are in the a11y tree during tests; query brand imgs by `src` (or `getAllByAltText`) to disambiguate when both are mounted.
+  - AuthLayout had no pre-existing test; added one. It renders under a `<Route element={<AuthLayout/>}>` parent with child routes for the `<Outlet/>`.
 ---
 
-## 2026-05-27 - US-004 — ProtectedRoute reativo com redirect /login?next=…
-- Implemented:
-  - `src/app/protected-route.tsx`: o redirect anônimo passou de `<Navigate to="/login" state={{ from }}/>` para `<Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />`. O loader `role="status"` "Carregando…" durante `isPending` permanece (já existia desde US-003). `/` continua redirecionando para `/financiamento` (público) — a raiz NÃO está sob `<ProtectedRoute/>` em routes.tsx; só `/historico` e `/historico/:scenarioId` estão.
-  - `src/features/auth/pages/login-page.tsx`: `resolveRedirectTarget` agora lê o querystring `?next=` (via `searchParams.get("next")`) em vez de `location.state.from`; mantém a guarda anti-open-redirect (`startsWith("/") && !startsWith("//")`); o **fallback mudou de `/financiamento` para `/historico`** (exigência do AC). Removidos o `useLocation` e o helper `isLocationStateWithFrom` (não usados mais).
-  - `src/app/protected-route.test.tsx` (novo): mocka `@/lib/queries/session` (`useSession`), cobre os 3 casos — loading (loader, sem filho), sem-user (Navigate→`/login` com `?next=` carregando pathname+search, ex.: `/historico/42?tab=pagamentos`), com-user (renderiza o filho). Usa um `LoginStub` que lê `useSearchParams().get("next")` num `data-testid="login-next"`.
-  - `src/features/auth/pages/login-page.test.tsx`: dois testes atualizados — o caso default agora espera `callbackURL: "/historico"` (novo fallback) e o caso "honours destination" virou "honours the ?next= destination" usando `renderLogin(["/login?next=%2Ffinanciamento"])`. Tipo de `renderLogin` simplificado para `string[]` (a forma `{ pathname, state }` não é mais usada).
-- Files changed:
-  - src/app/protected-route.tsx
-  - src/app/protected-route.test.tsx (new)
-  - src/features/auth/pages/login-page.tsx
-  - src/features/auth/pages/login-page.test.tsx
-- Quality: `bun run typecheck` ok, `bun run lint` ok (só o warning pré-existente em site-header.tsx), `bun run test` 598 testes em 58 arquivos — todos passam.
-- Browser: nenhuma ferramenta de browser (MCP/dev-browser) disponível neste ambiente — **verificação manual no browser ainda é necessária** para o critério "Verify in browser".
+## 2026-06-02 19:20 - US-005
+- Added `PUBLIC_APP_URL` to the typed `Env` and rewrote the verify/reset email links so they land on the existing SPA routes (`/verify-email?token=` and `/reset-password?token=`) instead of Better Auth's `/api/auth/*` endpoint (which falls through to the SPA 404).
+- `src/server/env.d.ts`: added required `PUBLIC_APP_URL: string` field to `Env`.
+- `wrangler.jsonc`: added `PUBLIC_APP_URL` to `vars` = `https://calculadorafinanceira.app` with a comment documenting the local-dev override (`.dev.vars` / `wrangler dev --var`).
+- `.env.example`: documented `PUBLIC_APP_URL=http://localhost:5173` for local dev.
+- `src/server/auth.ts`: added pure exported helpers `buildVerificationUrl(publicAppUrl, originalUrl)` and `buildResetUrl(publicAppUrl, originalUrl)` plus a non-throwing `getUrlParam` helper. They extract `token` (and preserve `callbackURL` for verify) via `new URL(...).searchParams`, trim a trailing slash from the base, and encode the token. `sendVerificationEmail` / `sendResetPassword` now pass `env.PUBLIC_APP_URL` through these helpers to the templates.
+- `src/server/auth.test.ts` (new): 9 tests covering verify+reset rewrites, callbackURL preservation/omission, trailing-slash trim, non-standard URL token extraction, and malformed-URL empty-token fallback. Follows the `googleSocialProvider` pattern — tests the pure helpers directly, never instantiating `betterAuth()` (which fires a background D1 init promise → unhandled rejections with a fake DB).
+- Because `PUBLIC_APP_URL` is a required `Env` field, every server test that builds a fake `Env` needed the field added: `auth-rate-limit-response`, `email`, `health`, `middleware/require-user`, `routes/payments|scenarios|tracker-entries|tracker-plans`, `scheduled`, `turnstile`.
+- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); full server suite green — 134 tests across 13 files (auth.test.ts 9/9).
+- **`wrangler deploy --dry-run` AC could NOT be run**: this environment has Node v20.20.2 but wrangler requires >= v22. The config change is a single valid `vars` entry (typecheck/lint cover the rest). NOK only due to the environment Node version — needs to be confirmed in CI where Node 22 is present.
 - **Learnings for future iterations:**
-  - O contrato de redirect pós-login deste app agora é `?next=<path+search>` no querystring (NÃO mais `location.state.from`). `ProtectedRoute` produz; `LoginPage` consome via `searchParams.get("next")`. Fallback quando não há `?next=` é `/historico`. Futuras rotas protegidas (ex.: `/acompanhamento/*` na US-015+) ganham esse comportamento de graça só por estarem sob `<ProtectedRoute/>`.
-  - Guarda anti-open-redirect: sempre validar `next.startsWith("/") && !next.startsWith("//")` antes de navegar para um destino vindo da URL — bloqueia `//evil.com` e URLs absolutas.
-  - `useSearchParams().get("next")` já devolve o valor DECODIFICADO; o `encodeURIComponent` no `ProtectedRoute` e o decode do react-router se cancelam — não decodifique de novo manualmente.
-  - O botão "Entrar" do `NavUser` navega para `/login` sem `?next=` (clique manual) — cai no fallback `/historico`, o que é o comportamento desejado.
+  - `Env` (`src/server/env.d.ts`) is a REQUIRED-fields interface. Adding any new required field forces updating EVERY `baseEnv()`/fake-`Env` helper across `src/server/**/*.test.ts` or typecheck fails. Grep for `BETTER_AUTH_URL:` to find them all — they sit next to it.
+  - Server auth helpers are deliberately pure + exported so they can be unit-tested WITHOUT calling `betterAuth()` (which starts a background D1 init promise that rejects under a fake DB). Follow this pattern for any new auth logic — see `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl`.
+  - `wrangler` CLI needs Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs can't be executed here — note as a CI-only check.
+  - US-007 will refactor the email templates and needs `publicAppUrl` threaded into `verifyEmailTemplate`/`resetPasswordTemplate`; the callers in `auth.ts` already build the final action URL via these helpers, so US-007 should pass `env.PUBLIC_APP_URL` as the separate `publicAppUrl` template input (for the logo/footer links), distinct from the action `url`.
 ---
 
-## 2026-05-27 - US-005 — Google como social provider no Better Auth (backend)
-- Implemented:
-  - `src/server/env.d.ts`: adicionados `GOOGLE_CLIENT_ID?` e `GOOGLE_CLIENT_SECRET?` (strings opcionais) à interface `Env`.
-  - `src/server/auth.ts`: dentro do `createAuth`, conditional spread aditivo — `...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { socialProviders: { google: { clientId, clientSecret } } } : {})` — inserido entre `emailAndPassword` e `hooks`. Resto do `createAuth` (rate limit, turnstile, email verification, reset password) intacto. Sem ambos os secrets, nenhuma chave `socialProviders` é emitida.
-  - `wrangler.jsonc`: comentário no bloco `vars` listando os secrets (incl. GOOGLE_CLIENT_ID/SECRET) que são definidos via `wrangler secret put`, apontando para docs/google-oauth.md.
-  - `docs/google-oauth.md` (novo): passo a passo de credenciais no Google Cloud Console, os 2 redirect URIs (localhost:5173 e calculadorafinanceira.app `/api/auth/callback/google`), comandos `wrangler secret put`, nota sobre VITE_GOOGLE_ENABLED (US-006).
-  - `src/server/auth-google.test.ts` (novo): 4 testes chamando o `createAuth` REAL com FakeD1 e inspecionando `.options.socialProviders` — omite quando ID ausente, omite quando só ID, omite quando só secret, e inclui `google: { clientId, clientSecret }` quando ambos presentes.
-- Files changed:
-  - src/server/env.d.ts
-  - src/server/auth.ts
-  - wrangler.jsonc
-  - docs/google-oauth.md (new)
-  - src/server/auth-google.test.ts (new)
-- Quality: `bun run typecheck` ok, `bun run lint` ok (só o warning pré-existente em site-header.tsx), `bun run test` 602 testes em 59 arquivos — todos passam.
+## 2026-06-02 19:24 - US-006
+- After e-mail verification, `verify-email-page.tsx` now redirects to `/login?verified=1` (kept `REDIRECT_DELAY_MS` + `replace: true`).
+- `login-page.tsx`: reads `searchParams.get("verified") === "1"` into `showVerifiedBanner` state; renders a success banner (`role="status"`, `aria-live="polite"`, `text-emerald-600 dark:text-emerald-400`) with text "Seu e-mail foi verificado. Entre com seu acesso." just above the `<Form>` (above GoogleSignInButton). Banner auto-dismisses after 8s (useEffect setTimeout cleared on unmount) OR when the form is submitted (`setShowVerifiedBanner(false)` in `onSubmit`).
+- Files changed: `src/features/auth/pages/verify-email-page.tsx`, `src/features/auth/pages/login-page.tsx`, `src/features/auth/pages/login-page.test.tsx`, `src/features/auth/pages/verify-email-page.test.tsx`.
+- Tests: added 2 login-page tests (banner with `?verified=1`, no banner without param); updated the verify-email success test to assert the redirect carries `verified=1` (added a `LoginRouteStub` reading `useSearchParams`). login (15) + verify (7) green; typecheck + lint clean (only pre-existing site-header react-refresh warning).
+- Browser verification: NO browser MCP tooling available here — manual check of the emerald banner + 8s auto-dismiss still needed (AC "Verify in browser" deferred).
 - **Learnings for future iterations:**
-  - Escopo Auth deste branch é ESTRITAMENTE ADITIVO: não refatorar `createAuth`, não trocar adapter D1, não tocar no fluxo email/senha. Gating de social provider via conditional spread mantém o diff localizado.
-  - Para testar config do Better Auth, chame o `createAuth` real (roda com `DB: {} as D1Database`) e leia `.options` — o instance expõe as opções cruas passadas a `betterAuth()`. Evite mockar `better-auth` porque `better-auth/api` (createAuthMiddleware no before-hook) depende do módulo real.
-  - Better Auth monta o redirect OAuth como `{BETTER_AUTH_URL}/api/auth/callback/google` — os redirect URIs no Google Console têm que bater exatamente (localhost:5173 em dev, calculadorafinanceira.app em prod).
-  - US-006 (botão front "Continuar com Google") já está prevista: front esconde o botão até `VITE_GOOGLE_ENABLED='true'`, e o backend só ativa o provider quando ambos os secrets existem — os dois lados ficam OFF por padrão.
+  - Banner pattern mirrors the existing `?flash=` message (same emerald classes + `aria-live`); both live above the form. Re-use this convention for any new auth status banners.
+  - In React Router tests, route matching ignores query strings, so a `/login` route element renders for `/login?verified=1` too. To assert the query actually arrived, render a stub that reads `useSearchParams()` (see `LoginRouteStub`) instead of a plain `<div>`.
 ---
 
-## 2026-05-27 - US-006 — Botão 'Continuar com Google' em login e cadastro
-- Implemented:
-  - `src/features/auth/components/google-sign-in-button.tsx` (novo): `<GoogleSignInButton next={...}/>` que SE auto-esconde (retorna `null`) quando `import.meta.env.VITE_GOOGLE_ENABLED !== 'true'`. Quando habilitado, renderiza o botão (variant `outline`, `bg-background`, logo SVG multicolor do Google à esquerda + texto "Continuar com Google") seguido de um divisor "ou", e ao clicar chama `authClient.signIn.social({ provider: 'google', callbackURL })`. O `callbackURL` resolve `next` (guarda anti-open-redirect `startsWith('/') && !startsWith('//')`) com fallback `/historico`.
-  - `src/features/auth/pages/login-page.tsx`: renderiza `<GoogleSignInButton next={searchParams.get("next")} />` acima do `<Form>` (após o bloco de flash). Reusa o `searchParams` já existente.
-  - `src/features/auth/pages/register-page.tsx`: adicionado `useSearchParams`; renderiza `<GoogleSignInButton next={searchParams.get("next")} />` no topo do `CardContent`, acima do `<Form>`.
-  - Decisão de design: a lógica de gating + o divisor "ou" vivem DENTRO do componente (não nas páginas) para (a) manter uma única fonte de gating e (b) evitar o warning `react-refresh/only-export-components` (que surgiria se o arquivo exportasse helper + componente juntos — vide `site-header.tsx`). O arquivo exporta SÓ o componente.
-  - Tests: `login-page.test.tsx` e `register-page.test.tsx` ganharam `signInSocialMock`, `signIn.social` no mock de `@/lib/auth-client`, `vi.unstubAllEnvs()` no afterEach, e 3 testes cada: (1) botão escondido quando flag != 'true'; (2) `vi.stubEnv('VITE_GOOGLE_ENABLED','true')` → botão visível, clique dispara `signIn.social` com `callbackURL: '/historico'`; (3) `?next=%2Ffinanciamento` → `callbackURL: '/financiamento'`. `renderRegister` agora aceita `initialEntries`.
-- Files changed:
-  - src/features/auth/components/google-sign-in-button.tsx (new)
-  - src/features/auth/pages/login-page.tsx, register-page.tsx
-  - src/features/auth/pages/login-page.test.tsx, register-page.test.tsx
-  - src/features/auth/CLAUDE.md
-- Quality: `bun run typecheck` ok, `bun run lint` ok (só o warning pré-existente em site-header.tsx — sem novos warnings), testes: os 2 arquivos alterados passam 23/23 (exit 0). Suíte completa: 608 testes passam em 59 arquivos.
-- GOTCHA (pré-existente, NÃO causado por esta story): rodando a suíte INTEIRA sob carga pesada (duração ~348s), `src/server/auth-google.test.ts` (US-005) emite ~4 "Unhandled Rejection: BetterAuthError: Failed to initialize database adapter" capturadas APÓS o teardown, o que faz o `bun run test` sair com código 1 mesmo com todos os testes passando. Rodado isoladamente (`vitest run src/server/auth-google.test.ts`) ele passa 4/4 com exit 0 — é uma corrida de init lazy do adapter D1 do Better Auth que só aflora sob carga. Não afeta a corretude do US-006; se reaparecer no CI, estabilizar esse teste de US-005 (ex.: aguardar/cancelar a promise de init) seria o fix, fora do escopo desta story.
-- Browser: nenhuma ferramenta de browser (dev-browser/MCP) disponível neste ambiente — **verificação manual no browser ainda é necessária** (subir com `VITE_GOOGLE_ENABLED=true` para ver o botão + divisor em /login e /register).
+## 2026-06-02 19:40 - US-007
+- Refactored `src/server/email-templates.ts` around a shared exported `renderBrandedEmail({ heading, intro, ctaLabel, ctaUrl, closing, publicAppUrl })` helper that emits brand-styled HTML (CSS exclusively inline, no `<style>` block) + a plain-text variant. `verifyEmailTemplate`/`resetPasswordTemplate` now delegate to it and take an extra `publicAppUrl` input; subjects, personalized greeting, and the verify/reset warnings are preserved.
+- HTML layout: body bg `#F7EFE2`, centered `max-width:600px` container, white card `border-radius:12px` `padding:32px` `border-top:4px solid #B94F45`, brand-red CTA button (`#B94F45` / white, `14px 24px`, `border-radius:8px`), textual fallback link, footer in `#7A7A7A` with `© {year} Calculadora Financeira.app · calculadorafinanceira.app`. Font stack `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` (single-quoted inner names so it survives the double-quoted style attribute).
+- Generated `public/brand/email-logo.png` (480×118, transparent RGBA) by exporting `public/brand/logo-nome.svg` with ImageMagick `convert -background none -density 300 -resize 480x120`. No placeholder needed — real export succeeded.
+- Updated callers in `src/server/auth.ts` to pass `publicAppUrl: env.PUBLIC_APP_URL` to both templates (distinct from the already-rewritten action `url`).
+- Added `src/server/email-templates.test.ts` (6 tests): verify+reset HTML contain `/brand/email-logo.png`, `#B94F45`, and the action url; greeting + warnings preserved; escapeHtml applied to hostile url (`"><script>`) and name (with quotes); text variants contain the raw url + branded signature; renderBrandedEmail trims a trailing slash from publicAppUrl and emits no `<style>` block.
+- Files changed: `public/brand/email-logo.png` (new), `src/server/email-templates.ts`, `src/server/email-templates.test.ts` (new), `src/server/auth.ts`.
+- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); full suite green — 767 tests / 80 files.
+- **DESIGN NOTE / potential follow-up (NOK risk):** `logo-nome.svg` is a *white* wordmark (`fill="white"` / `#F2F2F7`, only `.app` is brick-red), designed for dark backgrounds. On a plain white email card it would be nearly invisible, so the logo is placed on a brand-red (`#B94F45`) rounded header band inside the white card. This keeps it legible and looks intentional, but if a light-background logo variant is later produced, swap the band for a plain header. Email rendering itself was NOT verified in a real client (no email/browser tooling here).
 - **Learnings for future iterations:**
-  - Para esconder UI atrás de uma env var de forma TESTÁVEL com `vi.stubEnv`, leia `import.meta.env.X` no RENDER (dentro do componente), não num const de top-level do módulo — senão o valor é capturado no import e o stub não tem efeito.
-  - Componente que precisa exportar um helper junto dispara `react-refresh/only-export-components`. Para evitar: mantenha a lógica (gating, divisor) DENTRO do componente e exporte só o componente — assim o arquivo fica warning-free.
-  - O botão social usa `authClient.signIn.social({ provider, callbackURL })`. Qualquer teste de página que renderize o botão precisa adicionar `signIn: { social: fn }` ao mock de `@/lib/auth-client` (além de `signIn.email`).
+  - ImageMagick `convert` IS available in this sandbox (`/usr/bin/convert`); `rsvg-convert`/`inkscape`/`magick` are not. Use `convert -background none -density 300 -resize WxH in.svg out.png` to rasterize brand SVGs.
+  - The brand wordmark (`logo-nome.svg`) is white-on-transparent → never place it directly on white/cream; back it with a dark or brand-colored fill.
+  - Email HTML must keep all CSS inline (no `<style>`) and use single-quoted font names inside the double-quoted `style="..."` attribute, e.g. `'Segoe UI'`, or the attribute breaks.
+  - `renderBrandedEmail` escapes ALL caller strings itself — callers must pass RAW `name`/`url` (the greeting builds the raw name); do not pre-escape or you double-encode.
 ---
 
-## 2026-05-27 - US-007 — Migration scenario_drafts + endpoints GET/PUT /api/scenarios/draft
-- Implemented:
-  - `migrations/0004_scenario_drafts.sql` (novo): tabela `scenario_drafts("user_id" text not null primary key references "user" ("id") on delete cascade, "payload" text not null, "updated_at" integer not null)` — lowercase + double-quoted identifiers, alinhado a 0002_domain.sql. `user_id` como PK garante UM rascunho por usuário (upsert). Aplicada com `bunx --bun wrangler d1 migrations apply calculadora-financeira-db --local` (2 commands executed successfully).
-  - `src/server/routes/scenarios.ts`: adicionado `draftPayloadSchema = z.record(z.unknown())` (valida só que é objeto; conteúdo opaco). Duas rotas registradas LOGO APÓS `scenariosRouter.use("*", requireUser)` e ANTES de `/:id` (para a rota estática `/draft` ganhar o match):
-    - `GET /draft`: `select "payload" from "scenario_drafts" where "user_id" = ?`; sem linha → `{ draft: null }`; com linha → `JSON.parse(payload)` (fallback null se corrompido) → `{ draft }`.
-    - `PUT /draft`: try/catch `c.req.json()` → 400 `invalid_json`; `safeParse` → 400 `validation` se não-objeto; upsert `insert ... on conflict("user_id") do update set "payload"=excluded."payload","updated_at"=excluded."updated_at"` com `JSON.stringify(payload)` e `updated_at = Date.now()`; responde `{ draft, updated_at }`.
-  - Protegidas pelo `requireUser` já existente do router (sem sessão → 401).
-  - `src/server/routes/scenarios.test.ts`: FakeD1 ganhou um `drafts: Map<string, {payload, updated_at}>` (exposto no retorno), branch de `insert into "scenario_drafts"` em `run()` e `select "payload" from "scenario_drafts"` em `first()`. Novo `describe("draft endpoints")` com 7 testes: 401 sem sessão, GET sem draft (null), PUT cria + persiste, PUT upsert (mesmo user → drafts.size 1), GET após PUT, PUT rejeita não-objeto (array) com 400, PUT rejeita JSON malformado com 400.
-- Files changed:
-  - migrations/0004_scenario_drafts.sql (new)
-  - src/server/routes/scenarios.ts
-  - src/server/routes/scenarios.test.ts
-  - scripts/ralph/prd.json (US-007 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); `bunx vitest run src/server/routes/scenarios.test.ts` → 28/28; `bun run test` → 615 testes em 59 arquivos TODOS passam (exit 1 apenas pelo KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionado a esta story).
+## 2026-06-02 19:48 - US-008
+- Created the public LandingPage and made the root route `/` session-sensitive (anonymous → landing, authenticated → /financiamento redirect). Most code was already staged uncommitted on the branch from a prior pass; this iteration validated it against every AC, ran quality checks, and committed it.
+- `src/features/landing/pages/landing-page.tsx`: `LandingPage` — mobile-first Tailwind + shadcn `<Button asChild>`. Public header (`<BrandLogo>` left; ghost "Entrar" → /login + primary "Criar conta" → /register right). Hero `<h1 class="text-4xl md:text-6xl font-bold">` "Decisões financeiras com clareza" + muted subtitle; primary CTA `size="lg"` → /financiamento, secondary `variant="outline"` → /login. Motivation paragraph (≤3 frases). Footer `© {new Date().getFullYear()} Calculadora Financeira.app` + Entrar link. Brand palette: body `bg-[#F7EFE2]` (creme), CTAs `bg-[#B94F45]` (vermelho-tijolo).
+- `src/app/routes.tsx`: replaced `<Navigate to="/financiamento" />` at `/` with a `RootRoute` wrapper that calls `useSession()` — `isPending → null` (no flicker), `user → <Navigate to="/financiamento" replace />`, else `<LandingPage />`.
+- `src/features/landing/pages/landing-page.test.tsx` (5 tests): hero h1, both CTA hrefs, motivation block, footer year + Entrar link.
+- `src/app/App.test.tsx`: replaced the old "redirects root to /financiamento" test with two — anonymous visitor at `/` sees the LandingPage hero + "Começar a simular" CTA; authenticated user at `/` lands on the FinanciamentoPage (Navigate replace). Uses the existing `setSession()` helper that mocks `@/lib/queries/session`.
+- Files changed: `src/features/landing/pages/landing-page.tsx` (new), `src/features/landing/pages/landing-page.test.tsx` (new), `src/app/routes.tsx`, `src/app/App.test.tsx`.
+- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); `bun run test -- src/features/landing src/app/App.test.tsx` → 14/14 green (landing 5, App routing 9).
+- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual browser check of the landing hero/CTAs/palette and the authenticated redirect still needed (deferred to US-010 smoke / manual).
 - **Learnings for future iterations:**
-  - Para "validar que é um objeto" sem inspecionar conteúdo, use `z.record(z.unknown())` — aceita `{}`/qualquer objeto, rejeita array/null/primitivo (Zod v3 `parsedType` check). Bom para payloads opacos.
-  - Adicionar rotas a um router existente não exige mudança no `index.ts` se o mount path não muda — `/draft` virou `/api/scenarios/draft` de graça. `/api/scenarios/draft` NÃO é capturado pelo payments router (mount `/api/scenarios/:scenarioId/payments` exige sufixo `/payments`).
-  - Ao adicionar SQL novo num route handler, lembre de adicionar o branch correspondente no FakeD1 do `.test.ts` — ele THROWA em SQL não reconhecido (falha alto), então é impossível esquecer se houver teste cobrindo a rota.
-  - US-008 (autosave do simulador) consome estes endpoints: GET devolve `{ draft: <objeto> | null }`, PUT recebe o objeto do rascunho direto no body (não embrulhado em `{ payload }`).
+  - The root route is now `RootRoute` (not a bare `<Navigate>`). Any test that exercises `/` must mock `useSession` via the existing `setSession({ data, isPending })` helper in `App.test.tsx` (it maps `data.user`/`data.session` onto the `useSession` shape). `isPending: true` at `/` renders nothing.
+  - `useSession()` returns the flat `{ user, session, isPending, isError }` shape — `RootRoute` reads `user`/`isPending` directly (no `.data` indirection).
+  - US-009 will add `<Link to="/privacidade">Privacidade</Link>` to this footer (next to the Entrar link) and a public `/privacidade` route outside the AppShell — landing-page.test.tsx footer assertions will need the new link.
 ---
 
-## 2026-05-27 - US-008 — Autosave do rascunho do Simulador (localStorage + D1) com restore no boot
-- Implemented:
-  - `src/features/simulator/lib/simulator-draft.ts` (novo): tipo `FinancingDraft` (shape RAW do form, nulláveis), `SIM_DRAFT_KEY = 'sim-draft-v1'`, `EMPTY_FINANCING_DRAFT`, e helpers puros `parseFinancingDraft` (coerção + retorna null p/ draft vazio), `readLocalDraft`/`writeLocalDraft` (try/catch p/ storage indisponível), `isEmptyFinancingDraft`.
-  - `src/lib/api-client.ts`: `getDraft()` (GET /api/scenarios/draft → `{ draft }`) e `putDraft(payload: object)` (PUT, body = objeto cru). Tipo `DraftResponse`.
-  - `src/lib/queries/draft.ts` (novo): `DRAFT_QUERY_KEY = ['draft']`, `useDraftQuery({ enabled })` (gate por login) e `useSaveDraft()` (mutation). useSaveDraft NÃO invalida ['draft'] de propósito (refetch de autosave clobaria o input em edição) — comentado no código.
-  - `src/features/simulator/hooks/use-simulator-draft.ts` (novo): orquestra restore + save. `initialFinancing` via `useState(() => readLocalDraft())` (sync, 1º render). Quando logado, `useDraftQuery` resolve → aplica D1 UMA vez via `restoredFinancing`+`restoreToken`, mas só se `hasUserEditedRef` for false (AC: query atrasada não apaga input). `reportInput(draft)` marca editado + debounce 500ms → writeLocalDraft sempre + `useSaveDraft().mutate` quando logado. Cleanup limpa o timeout no unmount.
-  - `src/features/simulator/components/financing-form.tsx`: integra `useSimulatorDraft()`. `defaultValues = initialFinancing ?? EMPTY_FINANCING_DRAFT` (campos refletem o draft no 1º render p/ deslogado). Effect reseta o form quando chega `restoreToken`>0 (D1 tardio). Effect de autosave converte `useWatch` → `FinancingDraft` e chama `reportInput`, pulando a 1ª emissão (mount) e a emissão pós-`reset()` (via `skipReportRef`) e deduplicando por JSON serializado p/ não resetar o debounce em re-renders sem mudança de valor. `FormShape` virou alias de `FinancingDraft`.
-- Files changed:
-  - src/features/simulator/lib/simulator-draft.ts (new)
-  - src/lib/api-client.ts
-  - src/lib/queries/draft.ts (new)
-  - src/features/simulator/hooks/use-simulator-draft.ts (new)
-  - src/features/simulator/hooks/use-simulator-draft.test.tsx (new)
-  - src/features/simulator/components/financing-form.tsx
-  - src/features/simulator/components/financing-form.test.tsx (mocka @/lib/queries/session + draft; localStorage.clear no beforeEach)
-  - src/features/simulator/pages/financiamento-page.test.tsx (localStorage.clear no beforeEach)
-  - scripts/ralph/prd.json (US-008 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (hook + financing-form + financiamento-page) 21/21; `bun run test` 621 testes em 60 arquivos TODOS passam (exit 1 apenas pelo KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionado).
-- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (preencher form, dar refresh deslogado → campos voltam; logado → D1 vence o localStorage no boot).
+## 2026-06-02 19:51 - US-009
+- Added a public `/privacidade` placeholder route and a footer link to it on the LandingPage.
+- `src/features/landing/pages/privacidade-page.tsx` (new): `PrivacidadePage` — BrandLogo (wrapped in `<Link to="/">`) at top, `<h1>` "Política de privacidade", placeholder paragraph, "Voltar para o início" → /. A `useEffect` appends `<meta name="robots" content="noindex">` to `document.head` on mount and removes it on unmount. Reuses the landing's brand palette (`bg-[#F7EFE2]`, `#B94F45` accent link).
+- `src/app/routes.tsx`: added `<Route path="/privacidade" element={<PrivacidadePage />} />` as a public route OUTSIDE both AuthLayout and AppShell (sits right after the `/` RootRoute).
+- `src/features/landing/pages/landing-page.tsx`: footer now wraps the "Entrar" link in a `<nav>` and adds a discreet `<Link to="/privacidade">Privacidade</Link>` (same `text-sm text-muted-foreground` footer styling).
+- `src/features/landing/pages/landing-page.test.tsx`: added a test asserting the footer has a Privacidade link with `href="/privacidade"`.
+- `src/features/landing/pages/privacidade-page.test.tsx` (new): asserts title + placeholder paragraph render, the back link points to `/`, and the robots noindex meta is inserted on mount and removed on unmount.
+- Files changed: `src/features/landing/pages/privacidade-page.tsx` (new), `src/features/landing/pages/privacidade-page.test.tsx` (new), `src/app/routes.tsx`, `src/features/landing/pages/landing-page.tsx`, `src/features/landing/pages/landing-page.test.tsx`.
+- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); `bun run test -- src/features/landing` → 9/9 green (landing 6, privacidade 3); `bun run test -- src/app/App.test.tsx` → 9/9 still green (routes.tsx change didn't regress routing).
+- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual check of the /privacidade page render + noindex meta + footer link still needed (deferred to US-010 smoke / manual).
 - **Learnings for future iterations:**
-  - PROVIDER ORDERING: `SimulationProvider` (main.tsx) está ACIMA do `QueryClientProvider` (App.tsx). Não dá pra usar TanStack no provider — coloquei o hook de draft no `FinancingForm` (abaixo das rotas). Ver pattern no topo.
-  - Para um effect que reage a `useWatch` (que retorna objeto novo a cada render) sem disparar saves espúrios: compare o draft SERIALIZADO ao último (ref) e pule a 1ª emissão de mount + a emissão causada por `reset()`. Sem isso, o debounce reseta a cada re-render e o save nunca dispara.
-  - Testar TanStack + debounce: use `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync()` (flusha microtasks/promises do fetch entre timers). Para o caso logado, `vi.runOnlyPendingTimersAsync()` após o mount flusha o GET /draft. Mocke `@/lib/queries/session` (sessionState mutável entre testes) e `vi.stubGlobal('fetch', ...)` retornando um Response-like (`{ ok, status, statusText, json }`).
-  - `putDraft(payload: object)` evita o erro "index signature is missing" ao passar um tipo concreto onde se esperaria `Record<string, unknown>` — `object` aceita qualquer FinancingDraft sem cast e mantém api-client desacoplado de tipos de feature.
+  - Public routes (no auth chrome) go directly under `<Routes>` in `routes.tsx`, as siblings of `/` — NOT inside the `<Route element={<AuthLayout/>}>` or `<Route element={<AppShell/>}>` wrappers. `/privacidade` follows this pattern.
+  - The `document.head` meta-injection pattern (create element → appendChild in useEffect → removeChild in cleanup) is testable in jsdom: query `document.head.querySelector('meta[name="robots"]')` after render and after `unmount()`.
+  - US-010 is the final story: a full manual smoke (signup→verify→login→reset→branding) that can't be fully automated here (no browser/email tooling, wrangler needs Node 22). It is primarily a verification/checklist story.
 ---
 
-## 2026-05-27 - US-009 — Migration tracker_plans + tracker_entries com índices
-- Implemented:
-  - `migrations/0005_tracker.sql` (novo): duas tabelas + dois índices, lowercase SQL com identificadores entre aspas duplas (padrão de 0002_domain.sql).
-    - `tracker_plans`: `id` (pk), `user_id` (fk → `"user"("id")` on delete cascade), `name`, `property_value_cents`, `down_payment_cents`, `term_months`, `annual_rate_bp`, `modality` (`check ("modality" in ('PRICE','SAC'))`), `start_date`, `target_monthly_total_cents`, `created_at`, `updated_at`.
-    - `tracker_entries`: `id` (pk), `plan_id` (fk → `tracker_plans("id")` on delete cascade), `month_index`, `paid_amount_cents`, `paid_at`, `apply_mode` (`check ("apply_mode" in ('reduce_term','reduce_installment'))`), `note`, `created_at`, `unique ("plan_id","month_index")`.
-    - Índices: `tracker_plans_user_id_idx on "tracker_plans"("user_id")` e `tracker_entries_plan_id_idx on "tracker_entries"("plan_id","month_index")`.
-  - Aplicada com `bunx --bun wrangler d1 migrations apply calculadora-financeira-db --local` → "5 commands executed successfully" (2 create table + 2 create index + bookkeeping), status ✅.
-- Files changed:
-  - migrations/0005_tracker.sql (new)
-  - scripts/ralph/prd.json (US-009 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx). Nenhum código TS alterado → suíte de testes não afetada (US-009 não pede "Tests pass"; FakeD1 dos route tests só precisará de branches para as queries da US-010/011 quando essas chegarem).
+## 2026-06-02 20:03 - US-010
+- Final end-to-end smoke / verification story for the auth-fix + landing + branding branch. Validated the full signup→verify→login→reset→branding wiring at the code level and ran every automated quality gate this environment supports.
+- Automated gates (ALL GREEN): `bun run typecheck` clean; `bun run lint` clean (0 errors, only the pre-existing site-header react-refresh warning); `bun run test` → **777 tests / 82 files all passing**.
+- Code-level confirmation of each smoke step (grep-verified, no code changes needed):
+  - **Landing (anon /):** `landing-page.tsx` renders hero "Decisões financeiras com clareza" + "Começar a simular" CTA; brand palette (`bg-[#F7EFE2]` creme, `#B94F45` CTAs); footer with Entrar + Privacidade links. `RootRoute` in `routes.tsx` gates `/` on `useSession()`.
+  - **AuthLayout branding:** BrandLogo centered above `<Outlet/>` (US-004) — covered by `auth-layout.test.tsx`.
+  - **Verify email URL:** `auth.ts` `buildVerificationUrl` emits `${PUBLIC_APP_URL}/verify-email?token=...` (preserves callbackURL); `buildResetUrl` emits `${PUBLIC_APP_URL}/reset-password?token=...`.
+  - **Email branding:** `email-templates.ts` renders `<img src="${appUrl}/brand/email-logo.png" width="240" height="60">` and `#B94F45` CTA via `renderBrandedEmail`; covered by `email-templates.test.ts` (6 tests).
+  - **Verify → login redirect:** `verify-email-page.tsx` navigates to `/login?verified=1` (replace); `login-page.tsx` shows the `role="status"` emerald banner "Seu e-mail foi verificado. Entre com seu acesso." — covered by login/verify page tests.
+  - **Favicon/metadata:** `index.html` favicon + apple-touch-icon `/brand/icon.svg`, `theme-color #B94F45`.
+  - **Responsive AppShell:** `app-sidebar.tsx` shows BrandLogo (`hidden md:block`) / BrandMark (`md:hidden`).
+  - **Privacidade:** public `/privacidade` route + noindex meta (US-009).
+- Files changed: none (verification-only story); `scripts/ralph/prd.json` (passes flag) + this log.
+- **DEFERRED / environment-blocked ACs (NOK here, must be confirmed manually or in CI):**
+  - Live browser walkthrough (anon landing render, register page logo, /verify-email redirect timing, login banner visibility, reset form, mobile BrandMark swap, favicon in tab): **no browser/dev-browser MCP is configured in this sandbox** — cannot automate. All corresponding behaviors are unit-tested.
+  - Capturing the actual sent email HTML via Resend dev console / `sendVerificationEmail` interception: **no email tooling here** — template HTML is instead asserted by `email-templates.test.ts`.
+  - `bunx wrangler deploy --dry-run`: **wrangler needs Node ≥22; sandbox runs Node v20.20.2** — defer to CI.
 - **Learnings for future iterations:**
-  - SQLite `check (... in (...))` é a forma de enum neste projeto (não havia exemplo antes — 0001-0004 não usam check). Mantive os identificadores entre aspas dentro do check (`"modality" in (...)`) para casar com o estilo double-quoted do resto do schema.
-  - `unique ("plan_id","month_index")` em tracker_entries é o que habilita o upsert por mês (US-011: `on conflict(plan_id,month_index)`).
-  - Conversões de unidade ficam no caller (US-010/011): BRL→cents e %→bp antes do insert, como em scenarios.ts. O engine (US-012+) recebe Decimal já convertido (cents→BRL, bp→fração no caller, não no engine — vide US-012 AC).
----
-
-## 2026-05-27 - US-010 — CRUD /api/tracker/plans (sub-app Hono)
-- Implemented:
-  - `src/server/routes/tracker-plans.ts` (novo): sub-app Hono no padrão de scenarios.ts. `trackerPlansRouter.use("*", requireUser)` no topo. Exporta `default` + tipos `TrackerPlanRow` e `TrackerEntryRow` (este último reutilizável pela US-011).
-    - `POST /`: valida com Zod (`createPlanSchema`: name, propertyValue>0, downPayment>=0, termMonths int>0, annualRate>0, modality ∈ {PRICE,SAC}, startDate YYYY-MM-DD, targetMonthlyTotal>0). Regra de negócio downPayment>=propertyValue → 422. Converte BRL→cents (`toCents`) e %→bp (`toBasisPoints`). created_at===updated_at no insert. Devolve `{ plan: row }` com 201.
-    - `GET /`: lista planos do user logado `order by "created_at" desc` → `{ plans }`.
-    - `GET /:id`: busca plano com `and "user_id" = ?` (ownership → 404 se não achar) + entries `order by "month_index" asc` → `{ plan, entries }`.
-    - `PUT /:id`: `updatePlanSchema` (name?/targetMonthlyTotal? com refine "at least one"). Edita SÓ name e target_monthly_total_cents (+ updated_at); updates separados por campo (FakeD1-friendly). 404 ownership.
-    - `DELETE /:id`: 404 ownership; `delete from "tracker_plans"` — entries somem via ON DELETE CASCADE (não deletadas explicitamente no handler).
-  - `src/server/index.ts`: `app.route("/api/tracker/plans", trackerPlansRouter)` montado DEPOIS de scenarios e ANTES do `app.use("/api/*", requireUser)` genérico.
-  - `src/server/routes/tracker-plans.test.ts` (novo): FakeD1 com arrays `plans`/`entries`, dispatch por `sql.startsWith(...)` (throw em SQL não reconhecido); `delete` mimetiza o cascade removendo entries do plano. 20 testes cobrindo 401/200/201/404/422 em todos os endpoints (incl. ownership cross-user, modality inválida, downPayment>=propertyValue, targetMonthlyTotal=0, PUT body vazio, cascade no DELETE).
-- Files changed:
-  - src/server/routes/tracker-plans.ts (new)
-  - src/server/routes/tracker-plans.test.ts (new)
-  - src/server/index.ts
-  - scripts/ralph/prd.json (US-010 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); `bunx vitest run src/server/routes/tracker-plans.test.ts` → 20/20; `bun run test` → 641 testes em 61 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- **Learnings for future iterations:**
-  - DIVERGÊNCIA de status code: as rotas do tracker (US-010/011) retornam **422** para falhas de validação Zod E regras de negócio (downPayment>=propertyValue), diferente de scenarios.ts/payments.ts que usam 400. JSON malformado continua 400 (`invalid_json`). O PRD pede 422 explicitamente ("cobrindo 200/401/404/422") — US-011 segue o mesmo (422 para paid_amount < parcela).
-  - `GET /:id` devolve `{ plan, entries }` (entries do `tracker_entries order by "month_index" asc`). US-017 (useTrackerPlan) consome exatamente esse shape.
-  - Ownership = filtrar por `and "user_id" = ?` no SELECT; se não achar, 404 (não 403) — esconde existência de recursos de outros usuários, igual scenarios.
-  - PUT edita só `name` e `target_monthly_total_cents` (+ updated_at). termMonths/propertyValue/modality são imutáveis após criação (entries dependem deles). Updates separados por campo mantêm o FakeD1 simples (dispatch por startsWith).
----
-
-## 2026-05-27 - US-011 — CRUD /api/tracker/plans/:planId/entries com regra paid_amount >= parcela
-- Implemented:
-  - `src/server/routes/tracker-entries.ts` (novo): sub-app Hono com `trackerEntriesRouter.use("*", requireUser)` no topo. Helper `ownedPlan(c)` faz `select * from "tracker_plans" where "id" = ? and "user_id" = ?` (linha completa — precisa de modality/term/rate p/ validar parcela) → 404 se não achar/não for do user. Helper `installmentCentsForMonth(plan, monthIndex)` reusa `generatePriceSchedule`/`generateSacSchedule` (`@/core/finance/amortization`) + `annualToMonthlyRate` (`@/core/finance/rent-vs-buy`) — nada de fórmula duplicada (US-012 formalizará como normalSchedule).
-    - `POST /`: parse JSON (400 invalid_json) → Zod `createEntrySchema` { month_index int>0, paid_amount>0, paid_at YYYY-MM-DD, apply_mode ∈ {reduce_term,reduce_installment}, note? } (422) → ownership (404) → month_index > term_months (422, msg "entre 1 e N") → paid_amount_cents < parcela do mês (422, msg pt-BR "parcela prevista") → UPSERT `insert ... on conflict ("plan_id","month_index") do update set paid_amount_cents/paid_at/apply_mode/note = excluded.*` (preserva id+created_at) → re-SELECT da linha → **200** `{ entry }`.
-    - `PATCH /:entryId`: ownership (404) → parse JSON (400) → `patchEntrySchema` { paid_amount?, apply_mode?, note? } refine "at least one" (422) → existing entry `select * from "tracker_entries" where "id" = ? and "plan_id" = ?` (404) → se paid_amount: revalida contra a parcela do `existing.month_index` (422) → updates por campo (não toca month_index) → 200 `{ entry }`.
-    - `DELETE /:entryId`: ownership (404) → existing entry (404) → `delete from "tracker_entries"` → 200 `{ entry }`.
-  - `src/server/index.ts`: `app.route("/api/tracker/plans/:planId/entries", trackerEntriesRouter)` montado ANTES de `/api/tracker/plans` (e antes do genérico `app.use("/api/*", requireUser)`).
-  - `src/server/routes/tracker-entries.test.ts` (novo): FakeD1 (plans+entries, dispatch por startsWith, THROW em SQL não reconhecido; branch de insert mimetiza o upsert atualizando in-place ou append). 17 testes cobrindo 200/401/404/422 em POST/PATCH/DELETE incl. upsert idempotente (id preservado), apply_mode inválido, month_index > term, pagamento abaixo da parcela (POST e PATCH), e ownership cross-user.
-- Files changed:
-  - src/server/routes/tracker-entries.ts (new)
-  - src/server/routes/tracker-entries.test.ts (new)
-  - src/server/index.ts
-  - scripts/ralph/prd.json (US-011 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); `bunx vitest run src/server/routes/tracker-entries.test.ts` → 17/17; `bun run test` → 658 testes em 62 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- **Learnings for future iterations:**
-  - O server PODE importar `@/core/finance/*` — alias `@/`→`src/*` está em tsconfig.server.json E vite.config.ts, então typecheck/vitest/worker-bundle resolvem. Reusei o engine PRICE/SAC p/ obter a parcela "sem antecipação" do mês (mínimo aceito). Ver pattern no topo.
-  - POST de entries é UPSERT → retorna **200** (não 201 como plans/payments), conforme a lista "200/401/404/422" do AC. Pós-upsert eu re-SELECT a linha por (plan_id, month_index) p/ devolver o id/created_at corretos (insert novo vs update existente).
-  - Validação da parcela usa o normalSchedule (sem antecipação) do month_index, NÃO a parcela vigente após reduções — é o piso mínimo que a API impõe; o engine realizedSchedule (US-013) assume essa pré-condição.
-  - GOTCHA FakeD1: como o handler re-seleciona a linha após o upsert, o `.test.ts` precisa do branch `select * from "tracker_entries" where "plan_id" = ? and "month_index" = ?` além do `... where "id" = ? and "plan_id" = ?` (usado por PATCH/DELETE). Sem ele, o teste falha alto ("Unhandled SQL").
----
-
-## 2026-05-27 - US-012 — Engine puro core/finance/tracker/normalSchedule.ts (PRICE + SAC)
-- Implemented:
-  - `src/core/finance/tracker/normalSchedule.ts` (novo): exporta `normalSchedule(plan: TrackerPlanInput): ScheduleMonth[]`, `TrackerPlanInput` ({ principal: Decimal, monthlyRate: Decimal, termMonths: number, modality: AmortizationSystem }) e `ScheduleMonth` ({ monthIndex, installment, interest, amortization, balance } — todos Decimal). É um adaptador fino: delega a `generatePriceSchedule`/`generateSacSchedule` (de `@/core/finance/amortization`) conforme `modality` e renomeia `row.month` → `monthIndex`. Zero fórmula duplicada; tudo Decimal.js. Conversão cents→BRL e bp→fração fica no caller (documentado no JSDoc), não no engine.
-  - `src/core/finance/tracker/normalSchedule.test.ts` (novo, 12 testes): PRICE smoke (golden fixture R$300k @0.8%/360 = parcela 2544.48, juros 2400, amort 144.48, saldo 299855.52), SAC smoke (golden 3233.33/2400/833.33/299166.67), term=1 (PRICE e SAC quitam em 1 mês, saldo 0), e tabela de casos verificando saldo do último mês == 0 (tolerância 1 cent) p/ PRICE e SAC.
-- Files changed:
-  - src/core/finance/tracker/normalSchedule.ts (new)
-  - src/core/finance/tracker/normalSchedule.test.ts (new)
-  - scripts/ralph/prd.json (US-012 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); `bunx vitest run src/core/finance/tracker/normalSchedule.test.ts` → 12/12; `bun run test` → 670 testes em 63 arquivos TODOS passam (exit 0 — desta vez o KNOWN FLAKY de auth-google.test.ts/US-005 nem apareceu).
-- **Learnings for future iterations:**
-  - As primitivas de amortização REAIS são `generatePriceSchedule`/`generateSacSchedule` (`@/core/finance/amortization`), não `pricePayment`/`sacAmortizationPlan` (esses nomes no AC eram ilustrativos). Ambas recebem `{ principal: Decimal, monthlyRate: Decimal, termMonths: number }` e devolvem `ScheduleRow[]` com campo `.month` (não `.monthIndex`). O engine do tracker só renomeia o campo — daí ser um adaptador.
-  - `AmortizationSystem` ('PRICE'|'SAC') já existe em `@/core/finance/financial-types`; reusei em vez de declarar um literal novo. `modality` da row do plano casa 1:1.
-  - Golden fixtures de PRICE/SAC já existem em `src/core/finance/amortization.test.ts` (R$300k @0.8%/360) — reusei os mesmos números no teste do engine, garantindo que o adaptador não altera valores.
-  - US-013 (realizedSchedule) e US-014 (goalSchedule) devem importar `ScheduleMonth`/`TrackerPlanInput` deste arquivo p/ manter o shape consistente nas três curvas (build-curves da US-017 consome as três).
----
-
-## 2026-05-27 - US-013 — Engine puro core/finance/tracker/realizedSchedule.ts
-- Implemented:
-  - `src/core/finance/tracker/realizedSchedule.ts` (novo): exporta `realizedSchedule(plan: TrackerPlanInput, entriesByMonth: Map<number, RealizedEntry>): RealizedResult`, `RealizedEntry` ({ paidAmount: Decimal (BRL), applyMode }), `ApplyMode` ('reduce_term'|'reduce_installment') e `RealizedResult` ({ months: ScheduleMonth[], paidOffAtMonth: number | null }). Reusa `ScheduleMonth`/`TrackerPlanInput` de `./normalSchedule`.
-  - Walk próprio com Decimal.js (modelado em replay-payments.ts): mantém `balance`, `remainingTerm` e a parcela vigente "sticky". Por mês: `interest = round(balance*rate)`; parcela vigente PRICE=`currentInstallment`, SAC=`round(currentAmortization+interest)`; pagamento = entry.paidAmount (precondição API: >= parcela) ou a parcela vigente quando não há entry. Mês final quando `remainingTerm<=1 || month===termMonths || payment>=owed || (owed-payment)<=0.01` → installment=owed, amort=balance, balance=0, paidOffAtMonth=mês, trunca. Caso normal: amort=payment-interest, balance-=amort; `reduce_installment` recalcula a parcela vigente sobre (balance, remainingTerm) via `calculatePriceInstallment` (PRICE) ou `balance/remainingTerm` (SAC); `reduce_term` NÃO recalcula (parcela fixa → quita antes).
-  - NÃO reusei `applyPrepaymentReduceTerm/Installment` (prepayment.ts) porque assumem extra CONSTANTE e modo ÚNICO; aqui valor+modo variam por lançamento. Reusei só as primitivas de baixo nível (`calculatePriceInstallment`, `roundMoney`).
-  - `src/core/finance/tracker/realizedSchedule.test.ts` (novo, 9 testes): equivalência a normalSchedule sem lançamentos (PRICE+SAC, fixture 300k/0.8%/360, row-a-row), reduce_term (quita cedo, parcela mantida), reduce_installment (prazo mantido, parcela reduzida 402.11→114.02), mês sem entry usa a parcela recalculada, alternância de modos (saldo monotônico→0), quitação no mês 1 (payment>=dívida, trunca), SAC reduce_term, termMonths<=0 → vazio. Plano-base de golden values: R$1000 @10% a.m./3m, parcela PRICE 402.11.
-- Files changed:
-  - src/core/finance/tracker/realizedSchedule.ts (new)
-  - src/core/finance/tracker/realizedSchedule.test.ts (new)
-  - scripts/ralph/prd.json (US-013 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); `bunx vitest run src/core/finance/tracker/realizedSchedule.test.ts` → 9/9; `bun run test` → 679 testes em 64 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- **Learnings for future iterations:**
-  - O shape `RealizedEntry` do engine é unit-agnostic: `{ paidAmount: Decimal (BRL), applyMode }`. A build-curves da US-017 converte `paid_amount_cents`→BRL e mapeia as rows de `tracker_entries` para `Map<month_index, RealizedEntry>` antes de chamar `realizedSchedule`. `apply_mode` da row casa 1:1 com `ApplyMode`.
-  - `paidOffAtMonth` é SEMPRE o mês em que o saldo zera (= monthIndex da última row, pois truncamos lá). Sem lançamentos = `termMonths`. Só é < prazo quando lançamentos aceleraram. A UI (US-017 KPI "meses reduzidos", US-020 marcador) decide se mostra como "antecipada" comparando com o prazo Normal — o engine só reporta o fato.
-  - Modelo "sticky installment": a parcela vigente só muda quando um lançamento `reduce_installment` recalcula (sobre balance/remainingTerm pós-pagamento, igual replay-payments.ts). `reduce_term` mantém a parcela e deixa o `payment>=owed` disparar a quitação antecipada. Meses sem entry herdam a parcela vigente.
-  - Sem lançamentos, `realizedSchedule` é IDÊNTICO a `normalSchedule` (mesmo rounding/settlement) — bom teste de regressão e o que a US-014 (goalSchedule meta=parcela) também deve satisfazer.
----
-
-## 2026-05-27 - US-014 — Engine puro core/finance/tracker/goalSchedule.ts (curva Meta)
-- Implemented:
-  - `src/core/finance/tracker/goalSchedule.ts` (novo): exporta `goalSchedule(plan: TrackerPlanInput, targetMonthlyTotal: Decimal): GoalResult` e `GoalResult = { months: ScheduleMonth[], paidOffAtMonth: number | null, invalidAtMonth: number | null }`. Reusa `ScheduleMonth`/`TrackerPlanInput` de `./normalSchedule` e as primitivas de baixo nível (`calculatePriceInstallment`, `roundMoney`). Walk próprio com Decimal.js, modelado no `realizedSchedule` mas SEM lançamentos: todo mês paga o mesmo valor TOTAL fixo (`targetMonthlyTotal`), sempre reduzindo prazo.
-    - Por mês computa a parcela vigente "sem antecipação" (PRICE = parcela fixa original constante; SAC = `sacBaseAmortization + interest`, decrescente). Se `target < scheduledInstallment` → retorna `invalidAtMonth = month` e para (não inventa pagamento parcial). Como ambas as parcelas são não-crescentes, a inviabilidade só ocorre no mês 1.
-    - Caso válido: `amortization = target - interest`, `balance -= amortization`. Mês final quando `month === termMonths || target >= owed || (owed - target) <= 0.01` → `installment = owed`, `amortization = balance`, `balance = 0`, `paidOffAtMonth = month`, trunca.
-  - `src/core/finance/tracker/goalSchedule.test.ts` (novo, 9 testes): meta = parcela == normalSchedule (PRICE small + fixture longo 300k/0.8%/360, row-a-row), meta > parcela encurta (small + fixture longo com saldo monotônico), meta < parcela → invalidAtMonth=1 (PRICE e SAC — SAC documenta que paramos no mês 1 mesmo que fosse válida depois), meta que zera saldo cedo (mês 1, trunca), SAC com meta acima da 1ª parcela encurta, termMonths<=0 → vazio.
-- Files changed:
-  - src/core/finance/tracker/goalSchedule.ts (new)
-  - src/core/finance/tracker/goalSchedule.test.ts (new)
-  - scripts/ralph/prd.json (US-014 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); `bunx vitest run src/core/finance/tracker/goalSchedule.test.ts` → 9/9; `bun run test` → 688 testes em 65 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- **Learnings for future iterations:**
-  - As TRÊS curvas do tracker já estão completas (US-012 normalSchedule, US-013 realizedSchedule, US-014 goalSchedule) e compartilham `ScheduleMonth`/`TrackerPlanInput` de `./normalSchedule`. A `build-curves.ts` da US-017 é o chokepoint que converte a row do plano (cents→BRL via `/100`, bp→fração via `annualToMonthlyRate(annual_rate_bp/10000)`) e chama as três: `normalSchedule(plan)`, `realizedSchedule(plan, entriesByMonth)`, `goalSchedule(plan, target_monthly_total_cents/100)`.
-  - `goalSchedule` NÃO depende de entries — pode ser plotado já na criação do plano (US-020 renderiza a curva Meta mesmo sem lançamentos).
-  - Contrato de invalidez: quando `targetMonthlyTotal < parcela vigente`, `invalidAtMonth != null` e `months`/`paidOffAtMonth` vêm vazios/null. Na prática `invalidAtMonth` é sempre 1 (parcela PRICE constante; parcela SAC decrescente), mas a UI (US-020) deve tratar `invalidAtMonth != null` genericamente e mostrar o aviso "Valor-meta menor que a parcela inicial" em vez da série.
-  - Meta = parcela (PRICE) reproduz `normalSchedule` linha a linha porque o caminho sem-excedente é idêntico (mesmo rounding/settlement) — mesma propriedade do `realizedSchedule` sem lançamentos.
----
-
-## 2026-05-27 - US-015 — Página /acompanhamento (lista de planos + nav + empty state)
-- Implemented:
-  - `src/features/acompanhamento/pages/acompanhamento-page.tsx` (novo): página da lista usando `useTrackerPlans()`. Header com `<p>` de descrição + botão "Novo plano" (navega `/acompanhamento/novo`), sempre visível. Estados: loading (`acompanhamento-loading` skeletons), error (`acompanhamento-error` Alert destructive), empty (`acompanhamento-empty-state`: ícone IconChartLine + texto "Você ainda não tem nenhum plano de acompanhamento." + botão "Criar novo plano"), e lista (`tracker-plans-list`: cards por plano mostrando name, modality·term, valor financiado=`(property_value_cents-down_payment_cents)/100` via formatBRL, criado em via Intl.DateTimeFormat pt-BR). Cada card `role=button`/tabIndex/onKeyDown e `data-testid=tracker-plan-card-<id>`, clique → `/acompanhamento/:id`.
-  - `src/lib/queries/tracker-plans.ts` (novo): `TRACKER_PLANS_QUERY_KEY=['tracker-plans']`, helper `trackerPlanQueryKey(id)=['tracker-plan',id]` (reservado p/ US-017), `useTrackerPlans()` (GET /api/tracker/plans via plain `listTrackerPlans`).
-  - `src/lib/api-client.ts`: tipo `TrackerPlanApi` (espelha server `TrackerPlanRow`) + plain `listTrackerPlans()` (desembrulha `{ plans }`).
-  - `src/app/routes.tsx`: rota `/acompanhamento` sob `<ProtectedRoute/>` dentro do `<AppShell/>` (ao lado de /historico).
-  - `src/components/app-sidebar.tsx`: item "Acompanhamento" (IconChartLine) em `baseNavMain` entre Histórico e Alugar x Financiar; introduzido `protectedNavUrls` Set p/ esconder /historico+/acompanhamento de anônimos (substitui o filtro só-historico).
-  - `src/components/site-header.tsx`: `getPageTitle` mapeia `/acompanhamento*` → "Acompanhamento".
-  - Tests: `acompanhamento-page.test.tsx` (5: empty+navega, header sempre visível, 2 cards+navega no clique, loading skeleton, error alert), `tracker-plans.test.tsx` (2: queryKey + fetch). Atualizados `site-header.test.tsx` (linha `/acompanhamento`→"Acompanhamento") e `app-sidebar.test.tsx` (esconde/mostra ambos os itens protegidos).
-- Files changed:
-  - src/features/acompanhamento/pages/acompanhamento-page.tsx (new), acompanhamento-page.test.tsx (new)
-  - src/lib/queries/tracker-plans.ts (new), tracker-plans.test.tsx (new)
-  - src/lib/api-client.ts
-  - src/app/routes.tsx
-  - src/components/app-sidebar.tsx, app-sidebar.test.tsx
-  - src/components/site-header.tsx, site-header.test.tsx
-  - scripts/ralph/prd.json (US-015 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx — getPageTitle export, NÃO introduzido aqui); focados (4 arquivos) 29/29; `bun run test` → 696 testes em 67 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (logar, abrir /acompanhamento: empty state sem planos, cards com planos, botões navegam para /acompanhamento/novo e /acompanhamento/:id; item da sidebar só aparece logado).
-- **Learnings for future iterations:**
-  - Itens de nav vivem em `app-sidebar.tsx` `baseNavMain` (não em nav-main.tsx, que é só o renderer genérico). Rotas protegidas escondidas de anônimos via `protectedNavUrls` Set — adicione novas URLs protegidas lá.
-  - Ao criar nova rota top-level: rota em routes.tsx + item em baseNavMain (+ protectedNavUrls se protegida) + `getPageTitle` em site-header.tsx + linha na tabela parametrizada de site-header.test.tsx. Esquecer o último quebra o teste; os outros são silenciosos.
-  - `/acompanhamento/novo` (US-016) e `/acompanhamento/:id` (US-017) ainda NÃO existem como rotas — a página de lista já navega pra elas, mas cair nessas URLs hoje bate no NotFound. US-016/017 devem adicionar as rotas sob o mesmo `<ProtectedRoute/>`.
-  - `useTrackerPlan(id)` (US-017) deve usar `trackerPlanQueryKey(id)` (já exportado) e consumir GET /api/tracker/plans/:id que devolve `{ plan, entries }` (shape do server, US-010).
----
-
-## 2026-05-27 - US-016 — Página /acompanhamento/novo (formulário de criação com validação)
-- Implemented:
-  - `src/features/acompanhamento/schemas/create-tracker-plan.ts` (novo): `createTrackerPlanSchema` (Zod) + `CreateTrackerPlanFormValues`. Campos: name (trim, min1/max100), propertyValue>0, downPayment>=0, termMonths int>0, annualRate>0, modality enum PRICE/SAC, startDate YYYY-MM-DD, targetMonthlyTotal>0. `.refine(downPayment < propertyValue)` com path `["downPayment"]` (mensagens pt-BR, espelha o create-scenario schema). O shape do form é IDÊNTICO a `CreateTrackerPlanInput` do api-client → values vão direto para o mutation sem mapeamento.
-  - `src/lib/api-client.ts`: tipo `CreateTrackerPlanInput` + função plain `createTrackerPlan(input)` (POST /api/tracker/plans, desembrulha `{ plan }`).
-  - `src/lib/queries/tracker-plans.ts`: `useCreateTrackerPlan()` mutation — chama `createTrackerPlan`, `onSuccess` invalida `TRACKER_PLANS_QUERY_KEY` (`['tracker-plans']`). NÃO faz setQueryData no detail key porque o GET /:id devolve `{ plan, entries }` (shape diferente de `TrackerPlanApi`); deixar US-017 buscar fresh evita acoplar a forma do cache.
-  - `src/features/acompanhamento/pages/acompanhamento-novo-page.tsx` (novo): react-hook-form + zodResolver (mode onBlur), reusa `CurrencyInput`/`PercentageInput`/`Select`/`Input` + os primitives `Form*` do shadcn (FormField/FormItem/FormLabel/FormControl/FormMessage/FormDescription). Nenhuma lógica financeira no componente. Submit chama `mutateAsync(values)` e navega para `/acompanhamento/${plan.id}`. Tratamento de erro: 422 com `message === "down_payment_must_be_less_than_property_value"` → `form.setError("downPayment", ...)` (mapeia ao campo); outros 422 → erro de formulário genérico; 401 → "Sessão expirada"; resto → mensagem do erro/rede. Botões "Cancelar" (→ /acompanhamento) e "Criar plano" (disabled enquanto pending, texto "Criando…").
-  - `src/app/routes.tsx`: rota `/acompanhamento/novo` sob o mesmo `<ProtectedRoute/>` dentro do `<AppShell/>` (ao lado de /acompanhamento). `getPageTitle` já mapeia `/acompanhamento*` → "Acompanhamento" (US-015) — sem mudança em site-header.
-  - `src/features/acompanhamento/pages/acompanhamento-novo-page.test.tsx` (novo, 4 testes): mocka `useNavigate` (partial react-router-dom) e stub `fetch` global (exercita hook + api-client reais). Casos: render dos 8 campos; submit válido → POST /api/tracker/plans com body correto + navigate("/acompanhamento/tp_new"); submit vazio → erros de validação em FormMessage e fetch NÃO chamado; 422 down_payment do servidor → mensagem mapeada ao campo Entrada, sem navigate.
-- Files changed:
-  - src/features/acompanhamento/schemas/create-tracker-plan.ts (new)
-  - src/features/acompanhamento/pages/acompanhamento-novo-page.tsx (new), acompanhamento-novo-page.test.tsx (new)
-  - src/lib/api-client.ts
-  - src/lib/queries/tracker-plans.ts
-  - src/app/routes.tsx
-  - scripts/ralph/prd.json (US-016 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (novo-page 4/4 + tracker-plans query 2/2) verdes; `bun run test` → 700 testes em 68 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (logar, abrir /acompanhamento/novo, preencher e submeter → cria o plano e cai em /acompanhamento/:id; campos inválidos mostram FormMessage).
-- **Learnings for future iterations:**
-  - O shape do form de criação é IDÊNTICO a `CreateTrackerPlanInput` (name/propertyValue/downPayment/termMonths/annualRate/modality/startDate/targetMonthlyTotal — BRL e % crus, NÃO cents/bp). A conversão BRL→cents e %→bp acontece no SERVER (tracker-plans.ts `toCents`/`toBasisPoints`), nunca no client. Então `mutateAsync(values)` passa direto sem map.
-  - Mutations do tracker que criam um recurso só invalidam a LISTA (`['tracker-plans']`). Evitar `setQueryData(trackerPlanQueryKey(id), created)` porque o GET /:id devolve `{ plan, entries }` e semear `TrackerPlanApi` cru corromperia o cache que US-017 (`useTrackerPlan`) vai ler.
-  - Para o `Select` (shadcn = `<select>` nativo) dentro de um `FormField`, basta `<Select {...field}>` — `field` já traz value/onChange/onBlur/name/ref compatíveis com select nativo. Default "PRICE" via defaultValues.
-  - Testar uma página com mutation TanStack: stub `fetch` global (Response-like `{ ok, status, statusText, json }`) + envolver em `<QueryClientProvider>` (retry:false) + `<MemoryRouter>`, mockar `useNavigate` para asserir a navegação pós-sucesso. Preencher CurrencyInput/PercentageInput com `fireEvent.change(target.value="500000")` (+ blur opcional) — `parseBRL`/`parsePercentage` aceitam dígitos crus.
-  - Mapeamento de erro 422 do servidor: a API do tracker devolve `{ error: "validation", message?: "down_payment_must_be_less_than_property_value" }`. Só o caso down_payment tem `message` mapeável a um campo (`form.setError`); os demais 422 (issues do Zod) caem no erro de formulário genérico. O Zod do client já bloqueia downPayment>=propertyValue antes do POST, então o 422 desse campo é defensivo (race/regra futura).
----
-
-## 2026-05-27 - US-017 — Página /acompanhamento/:id (layout com KPIs + dados do plano)
-- Implemented:
-  - `src/lib/api-client.ts`: tipos `TrackerEntryApi` (espelha server `TrackerEntryRow`) e `TrackerPlanDetail` (`{ plan, entries }`); funções plain `getTrackerPlan(id)` (GET /api/tracker/plans/:id) e `deleteTrackerPlan(id)` (DELETE → `{ plan }`).
-  - `src/lib/queries/tracker-plans.ts`: `useTrackerPlan(id)` (queryKey `trackerPlanQueryKey(id)`, `enabled: Boolean(id)`) + `useDeleteTrackerPlan()` (invalida `['tracker-plans']` e `removeQueries` da chave de detalhe no sucesso).
-  - `src/features/acompanhamento/lib/build-curves.ts` (novo): chokepoint `buildCurves(plan, entries) → TrackerCurves`. Converte cents→BRL e bp→fração (`annualToMonthlyRate`), monta `entriesByMonth` e chama `normalSchedule`/`realizedSchedule`/`goalSchedule`. Expõe `planInput`, as três curvas, `targetMonthlyTotal`, `entriesByMonth`, `hasEntries`, `lastEntryMonth`.
-  - `src/features/acompanhamento/lib/build-tracker-kpis.ts` (novo): `buildTrackerKpis(curves): KpiCardData[]` — 4 KPIs (Saldo atual, Juros pagos até agora, Economia de juros vs Normal (Realizado), Meses reduzidos vs Normal (Realizado)); todos "—" sem lançamentos. Mantém a lógica fora do componente (convenção SectionCards).
-  - `src/features/acompanhamento/components/delete-tracker-plan-dialog.tsx` (novo): modal de confirmação espelhando `DeletePaymentDialog` (Dialog + Cancelar + botão destructive "Excluir plano"; `useDeleteTrackerPlan().mutateAsync` → `onDeleted`). Trata 404/401/erro genérico.
-  - `src/features/acompanhamento/pages/acompanhamento-detail-page.tsx` (novo): `useTrackerPlan(id)` (loading/404/erro como historico-detalhe); cabeçalho read-only (name + modality + principal `formatBRL` + termo + data de início formatada DD/MM/YYYY sem fuso); `<SectionCards items={kpis}/>`; card placeholder da planilha (US-018+); botões "Editar plano" (disabled, placeholder) e "Excluir plano" (abre o modal → no sucesso `navigate('/acompanhamento')`).
-  - `src/app/routes.tsx`: rota `/acompanhamento/:id` sob o mesmo `<ProtectedRoute/>`, depois de `/acompanhamento/novo`. `getPageTitle` já cobre `/acompanhamento*` (startsWith) — sem mudança em site-header.
-  - `src/features/acompanhamento/pages/acompanhamento-detail-page.test.tsx` (novo, 5 testes): cabeçalho read-only; KPIs "—" sem entries; KPIs computados com 3 entries; "Editar plano" disabled; fluxo de exclusão (abre modal → confirma → `mutateAsync('tp_1')` + `navigate('/acompanhamento')`). Mocka `useTrackerPlan`+`useDeleteTrackerPlan`, `useNavigate`+`useParams`, e `@/components/ui/dialog` (passthrough).
-- Files changed:
-  - src/lib/api-client.ts
-  - src/lib/queries/tracker-plans.ts
-  - src/features/acompanhamento/lib/build-curves.ts (new)
-  - src/features/acompanhamento/lib/build-tracker-kpis.ts (new)
-  - src/features/acompanhamento/components/delete-tracker-plan-dialog.tsx (new)
-  - src/features/acompanhamento/pages/acompanhamento-detail-page.tsx (new), acompanhamento-detail-page.test.tsx (new)
-  - src/app/routes.tsx
-  - scripts/ralph/prd.json (US-017 passes:true)
-- Quality: `bun run typecheck` ok (tsc -b, SPA+Worker); `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (detail-page 5/5 + tracker-plans 2/2) verdes; `bun run test` → 705 testes em 69 arquivos TODOS passam (exit 0 — o KNOWN FLAKY de auth-google.test.ts/US-005 não apareceu desta vez).
-- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (logar, criar um plano, abrir /acompanhamento/:id: cabeçalho read-only + 4 KPIs "—" sem lançamentos; "Excluir plano" abre modal e volta para /acompanhamento; "Editar plano" disabled).
-- **Learnings for future iterations:**
-  - `buildCurves` é o chokepoint que US-018 (planilha) e US-020 (gráfico) devem reusar — ele já devolve as três curvas E o `entriesByMonth`/`hasEntries`/`lastEntryMonth`. Não re-derive curvas nas próximas stories.
-  - KPI builders do app NÃO têm teste dedicado (build-historico-kpis, build-scenario-detail-kpis, build-financiamento-kpis também não) — são cobertos via teste de página. Segui essa convenção; `build-tracker-kpis`/`build-curves` são exercitados pelo teste da detail-page.
-  - Datas `start_date` ("YYYY-MM-DD") devem ser formatadas por split manual (`DD/MM/YYYY`), NÃO `new Date(iso)` — `new Date("2025-01-01")` é meia-noite UTC e o `Intl` pt-BR pode mostrar o dia anterior. (created_at é epoch-ms, esse sim usa `new Date(ms)`.)
-  - O slug dos test-ids do SectionCards remove diacríticos e parênteses: "Economia de juros vs Normal (Realizado)" → `kpi-card-economia-de-juros-vs-normal-realizado-value`; "Juros pagos até agora" → `...-juros-pagos-ate-agora-value`.
-  - Teste que renderiza uma página com modal de confirmação: clicar no botão do header abre o Dialog (passthrough mock só renderiza children quando `open`), então há DOIS botões com o mesmo texto ("Excluir plano"). Use `within(screen.getByRole('dialog')).getByRole('button', {name})` para o confirm, e envolva o clique async em `act(async () => …)` para evitar o warning de act (o `mutateAsync`+navigate resolvem fora do act).
----
-
-## 2026-05-28 - US-018 — Planilha mês a mês (read-only) Normal + Realizado projetado
-- Implemented:
-  - `src/features/acompanhamento/components/tracker-spreadsheet.tsx` (novo): `<TrackerSpreadsheet plan entries curves/>` envolvendo o `<DataTable/>` genérico num Card (mesmo wrap de amortization-table). Colunas: Mês (monthIndex), Vencimento (DD/MM/YYYY via `addMonthsToIso(plan.start_date, m-1)`), Parcela prevista (Normal — `curves.normal[m-1].installment`), Pago (`entry.paid_amount_cents/100` ou "—"), Modo ("Reduzir prazo"/"Reduzir parcela" ou "—"), Saldo após (Realizado — `curves.realized.months[m-1].balance`; "Quitado" quando o mês excede `realized.months.length` por quitação antecipada), Nota. pageSize 24. Uma linha por `plan.term_months`. Reusa o `curves` já memoizado pela página (não re-chama buildCurves). Pago/Modo/Nota saem dos `entries` crus (entriesByMonth do curves não tem `note`). Sem inputs — edição vem na US-019.
-  - `src/features/acompanhamento/pages/acompanhamento-detail-page.tsx`: substituído o Card placeholder "Planilha mês a mês" por `{curves && <TrackerSpreadsheet plan={plan} entries={detail.entries} curves={curves}/>}` abaixo do `<SectionCards/>`. Removidos os imports de Card/CardContent/CardDescription/CardHeader/CardTitle (não mais usados na página).
-  - `src/features/acompanhamento/components/tracker-spreadsheet.test.tsx` (novo, 3 testes): (1) 2 entries grandes (R$60k/mês reduce_term) quitam antes do mês 12 → N=term_months linhas + linhas "Quitado" presentes; (2) sem entries → N linhas, nenhum "Quitado", 1ª linha Vencimento 01/01/2025 e ≥3 "—" (Pago/Modo/Nota); (3) start_date 2025-01-15/term 14 → mês 2 = 15/02/2025, mês 13 = 15/01/2026 (rollover de ano).
-  - `acompanhamento-detail-page.test.tsx`: o teste de metadados do header passou a usar `within(getByTestId("acompanhamento-detail-toolbar"))` para PRICE/12 meses/01-01-2025, pois a planilha agora repete esses valores nas linhas.
-- Files changed:
-  - src/features/acompanhamento/components/tracker-spreadsheet.tsx (new), tracker-spreadsheet.test.tsx (new)
-  - src/features/acompanhamento/pages/acompanhamento-detail-page.tsx, acompanhamento-detail-page.test.tsx
-  - scripts/ralph/prd.json (US-018 passes:true)
-- Quality: `bun run typecheck` ok (tsc -b SPA+Worker); `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (spreadsheet 3/3 + detail-page 5/5) verdes; `bun run test` → 708 testes em 70 arquivos TODOS passam (exit 0 — o KNOWN FLAKY de auth-google.test.ts/US-005 não apareceu).
-- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (logar, criar plano, abrir /acompanhamento/:id: planilha com term_months linhas, Vencimento incrementando o mês, Pago/Modo/Nota "—" sem lançamentos; com lançamentos grandes, saldo cai e linhas finais viram "Quitado").
-- **Learnings for future iterations:**
-  - `querySelectorAll` devolve `Element`, e `within()` exige `HTMLElement` — tipa a query (`querySelectorAll<HTMLTableRowElement>(...)`) senão o tsc -b quebra ("Element is not assignable to HTMLElement").
-  - Ao adicionar uma planilha/gráfico que ECOA valores do cabeçalho da página (datas, modality, prazo), os testes de página que afirmavam esses textos com `getByText` passam a achar múltiplos → escopar com `within(getByTestId(...))` no toolbar. Padrão a seguir nas US-019/020.
-  - "Quitado" = mês cujo índice excede `curves.realized.months.length` (o engine TRUNCA em paidOffAtMonth). O próprio mês da quitação ainda tem row no realized (saldo 0), só os POSTERIORES somem → são marcados "Quitado". Sem lançamentos, realized tem term_months linhas e nada é "Quitado".
-  - US-019 (edição inline) deve transformar as colunas Pago/Modo desta planilha em inputs/select e disparar `useUpsertTrackerEntry`; a planilha já isola Pago/Modo/Nota dos `entries` crus, então plugar onChange por linha é localizado. US-022 (export) pode reusar o helper `addMonthsToIso` (hoje local no componente) para a coluna Vencimento — extrair para um util se precisar.
----
-
-## 2026-05-28 - US-019 — Edição inline de lançamentos na planilha com mutation otimista
-- Implemented:
-  - `src/lib/api-client.ts`: `UpsertTrackerEntryInput` + plain `upsertTrackerEntry(planId, input)` (POST /api/tracker/plans/:planId/entries → `{ entry }`) e `deleteTrackerEntry(planId, entryId)` (DELETE → `{ entry }`).
-  - `src/lib/queries/tracker-plans.ts`: `useUpsertTrackerEntry(planId)` e `useDeleteTrackerEntry(planId)` com optimistic onMutate (cancelQueries + snapshot + setQueryData no `['tracker-plan', planId]`), onError rollback do snapshot, e (upsert) onSuccess reconciliando a linha otimista com a linha canônica do server (id/created_at reais). Helper `sortEntriesByMonth`.
-  - `src/features/acompanhamento/components/tracker-spreadsheet.tsx`: coluna "Pago" virou `<CurrencyInput min={parcelaPrevista}/>`, "Modo" virou `<Select>` (Reduzir prazo/Reduzir parcela). Estado local por mês: `drafts` (edição não salva), `rowErrors` (validação por linha), `actionError` (banner de erro de API/rollback), `pendingDelete` (confirmação). Botão "Salvar" por linha (habilitado só quando há draft) dispara `useUpsertTrackerEntry`; validação cliente `paid >= parcela` (cent-rounded) bloqueia ANTES do fetch com `role="alert"` na linha. Botão "Excluir" por linha abre Dialog de confirmação → `useDeleteTrackerEntry`. Linhas após quitação (`settled`) têm inputs `disabled` e mostram "Quitado". Helpers `shiftMonths`/`dueDateBR`/`dueDateIso` (refatorados do `addMonthsToIso` da US-018; agora também produzem ISO p/ o default `paid_at`). Coluna "Nota" mantida read-only (US-018).
-  - Sem lib de toast no projeto → erros via banner inline `role="alert"` (`data-testid="tracker-spreadsheet-error"`), seguindo a convenção aria-live do fluxo de auth.
-- Files changed:
-  - src/lib/api-client.ts
-  - src/lib/queries/tracker-plans.ts
-  - src/features/acompanhamento/components/tracker-spreadsheet.tsx
-  - src/features/acompanhamento/components/tracker-spreadsheet.test.tsx (reescrito: provider + Dialog mock + CacheHarness; 8 testes)
-  - src/lib/queries/tracker-plans.test.tsx (3 testes novos p/ os hooks otimistas)
-  - src/features/acompanhamento/pages/acompanhamento-detail-page.test.tsx (mock de tracker-plans ganhou useUpsertTrackerEntry/useDeleteTrackerEntry)
-  - scripts/ralph/prd.json (US-019 passes:true)
-- Quality: `bun run typecheck` ok (tsc -b SPA+Worker); `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (spreadsheet 8/8 + tracker-plans 5/5 + detail-page 5/5) verdes; `bun run test` → 716 testes em 70 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (logar, abrir um plano, digitar Pago numa linha, escolher Modo, Salvar → saldo das linhas seguintes recalcula; valor < parcela mostra mensagem sem chamar a API; excluir um lançamento pede confirmação).
-- **Learnings for future iterations:**
-  - Para testar re-render otimista de um componente PRESENTACIONAL (recebe dados por props): use um harness que lê o cache via o hook real (`useTrackerPlan`) + `buildCurves` e passa para baixo; seed com `qc.setQueryData(trackerPlanQueryKey(id), {plan, entries})` e QueryClient com `staleTime: Infinity` (senão o seed dispara refetch que bate no fetch mockado). Stub `fetch` Response-like. Pagamento enorme reduce_term no mês 1 quita o empréstimo → linhas seguintes viram "Quitado" (assertível); 422 (`ok:false`) → rollback (sem "Quitado") + banner de erro.
-  - `vi.fn(async () => ...)` sem params tipa `mock.calls[0]` como `[]` e o `tsc -b` reclama do cast `as [string, RequestInit]`. Tipe a implementação: `vi.fn(async (_url: string, _init: RequestInit) => ...)` e os calls ficam tipados — sem cast.
-  - `note: row.entry?.note ?? undefined` converte `null`→`undefined` (o `??` cobre null E undefined) porque o Zod do POST espera `note?: string` e rejeitaria `null`.
-  - US-021 (modal "e se?") reusa `useUpsertTrackerEntry` (botão "Aplicar este lançamento") e a mesma validação `paid >= parcela`. US-020 (gráfico) consome `curves` (já memoizado na detail-page) — não re-derive.
----
-
-## 2026-05-28 - US-020 — Gráfico comparativo Realizado × Normal × Meta com marcador de quitação antecipada
-- Implemented:
-  - `src/components/chart-area-interactive.tsx` (estendido, aditivo/backwards-compatible): `SeriesData` ganhou `strokeDasharray?`/`strokeWidth?` (aplicados em Line E Area); `ChartView` ganhou `markers?: ChartMarker[]` (`{ month, value, label, color }`) renderizados como `<ReferenceDot>` com label, filtrados pelo range ativo (canvas expõe `data-marker-count`); novo prop `notice?: React.ReactNode` renderiza um banner DENTRO do card (acima do chart body). Nada removido — todos os campos opcionais; os 10 testes existentes do componente continuam verdes.
-  - `src/features/acompanhamento/lib/build-tracker-chart-views.ts` (novo, puro): `buildTrackerChartViews(curves: TrackerCurves) → { views: ChartView[]; metaInvalid: boolean }`. Acumula saldo + juros mês a mês das três curvas (helper `accumulate`: índice 0 = principal/juros 0; `lastMonth` = quitação), monta 2 views ("balance"/"interest") com 3 séries (Realizado sólido var(--chart-1) sw2.5; Normal tracejado var(--chart-3) "6 4"; Meta fina var(--chart-2) sw1.5). Saldo após quitação = 0; juros após quitação = total (clamp). Quando `goal.invalidAtMonth != null`: omite a série Meta e seta `metaInvalid`. Marcadores de quitação antecipada no Realizado/Meta só quando `paidOffAtMonth != null && < term` (saldo→marker em y=0; juros→marker no total).
-  - `src/features/acompanhamento/components/tracker-curves-chart.tsx` (novo): `<TrackerCurvesChart curves={…}/>` envolve `<ChartAreaInteractive>` (title "Comparativo de curvas", defaultView "balance"); passa `notice` = `<Alert data-testid="tracker-curves-meta-warning">` ("Valor-meta menor que a parcela inicial…") quando `metaInvalid`. Reusa o `curves` já memoizado pela página — NÃO re-chama buildCurves.
-  - `src/features/acompanhamento/pages/acompanhamento-detail-page.tsx`: `{curves && <TrackerCurvesChart curves={curves}/>}` abaixo do `<TrackerSpreadsheet/>`.
-  - Tests: `build-tracker-chart-views.test.ts` (6: 2 views/3 séries quando válido, estilos solid/dashed/thin, pontos 0..term com principal no mês 0 e saldo final ~0, meta omitida + metaInvalid quando target < parcela, marcador early-payoff no Realizado, sem markers quando nada quita cedo). `tracker-curves-chart.test.tsx` (2 smoke, com MockResizeObserver: válido → canvas + tabs + legenda Realizado/Normal/Meta e sem aviso; meta inválida → aviso + Meta ausente da legenda). `acompanhamento-detail-page.test.tsx`: mock do `tracker-curves-chart` (stub) p/ não puxar recharts/ResizeObserver na page test.
-- Files changed:
-  - src/components/chart-area-interactive.tsx, src/components/CLAUDE.md
-  - src/features/acompanhamento/lib/build-tracker-chart-views.ts (new), build-tracker-chart-views.test.ts (new)
-  - src/features/acompanhamento/components/tracker-curves-chart.tsx (new), tracker-curves-chart.test.tsx (new)
-  - src/features/acompanhamento/pages/acompanhamento-detail-page.tsx, acompanhamento-detail-page.test.tsx
-  - scripts/ralph/prd.json (US-020 passes:true)
-- Quality: `bun run typecheck` ok (tsc -b SPA+Worker); `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (chart-views 6/6 + curves-chart 2/2 + chart-area-interactive 10/10 + detail-page 5/5) verdes; `bun run test` → 724 testes em 72 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (logar, abrir /acompanhamento/:id: card "Comparativo de curvas" com 3 curvas, alternância Saldo devedor/Juros acumulados, marcador "Quitado em mês N" quando há antecipação; criar plano com target abaixo da parcela → aviso de meta inviável no lugar da série Meta).
-- **Learnings for future iterations:**
-  - `ChartAreaInteractive` agora suporta: per-series `strokeDasharray`/`strokeWidth`, `ChartView.markers` (ReferenceDot + label, com `data-marker-count` no canvas) e `notice` (banner dentro do card). São genéricos/aditivos — prefira estender o componente canônico a forkar; novas curvas viram `ChartView` + `*-chart-views.ts` builder (mantém engine/data-shaping fora do React, igual aos `*-data.ts` do simulador).
-  - Cast de `ChartPoint` (`{ month: number }`) para o shape concreto com keys extras precisa passar por `as unknown as {...}` no teste — o cast direto falha (TS2352, "neither type sufficiently overlaps"). Os dados em si fluem como subtipo estrutural sem cast (array tipado → `ChartView.data`).
-  - Page test que renderiza um filho com recharts deve OU stubar `ResizeObserver` (MockResizeObserver dispara o callback síncrono com 600x300, vide chart-area-interactive.test.tsx) OU mockar o componente de gráfico. Mockei `tracker-curves-chart` na detail-page test p/ manter a page test rápida/focada; testes que exercitam o gráfico de fato usam o MockResizeObserver.
-  - `realized.paidOffAtMonth`/`goal.paidOffAtMonth` são SEMPRE = termMonths sem antecipação → marcador de "quitação antecipada" só quando `paidOffAtMonth < term` (senão poluiria o baseline Normal). Normal não tem marcador (é a linha de referência).
-  - US-021 (modal "e se?") e US-022 (export) devem reusar `buildCurves` (já memoizado na detail-page) e, para o gráfico, `buildTrackerChartViews`; a simulação "e se?" da US-021 aplica por cima de `realizedSchedule` em memória.
----
-
-## 2026-05-28 - US-021 — Modal "Simular antecipação" (e se?) não-persistente, com opção de aplicar
-- Implemented:
-  - `src/features/acompanhamento/lib/due-date.ts` (novo): extraídos `dueDateBR`/`dueDateIso` (+ `shiftMonths`/`pad` privados) do `tracker-spreadsheet.tsx` para um util compartilhado (DRY — o modal precisava do mesmo cálculo de vencimento). Lógica idêntica (soma meses a "YYYY-MM-DD" sem `new Date(iso)`, clamp do dia ao último do mês). `tracker-spreadsheet.tsx` agora importa daqui (removidas as cópias locais).
-  - `src/features/acompanhamento/lib/simulate-what-if.ts` (novo): `simulateWhatIf(curves, { month, paidAmount: Decimal, applyMode }) → WhatIfResult` puro. Copia `curves.entriesByMonth`, seta o mês hipotético e re-roda `realizedSchedule(curves.planInput, map)` — sem API, sem fórmula nova. Devolve `payoffMonth`, `monthsSavedVsNormal` (vs prazo Normal), `interestSaved` (Decimal, vs Realizado atual) e `installmentsSaved` (vs Realizado atual).
-  - `src/features/acompanhamento/components/tracker-what-if-dialog.tsx` (novo): `<TrackerWhatIfDialog open onOpenChange plan curves/>`. Form (Mês Select 1..term, Valor CurrencyInput min=parcela prevista, Modo Select prazo/parcela), reset no `useEffect([open])` para o próximo mês não lançado (`(lastEntryMonth ?? 0)+1` clamp term) com a parcela prevista como valor inicial. Mini-card de resultado (3 números: nova data de quitação vs Normal, juros economizados, parcelas economizadas) via `useMemo(simulateWhatIf)`. Valor < parcela prevista → alerta `tracker-what-if-below-installment`, esconde resultado e desabilita "Aplicar". "Aplicar este lançamento" → `useUpsertTrackerEntry(plan.id).mutateAsync({month_index, paid_amount, paid_at: dueDateIso, apply_mode})` + fecha; "Descartar" só fecha.
-  - `src/features/acompanhamento/pages/acompanhamento-detail-page.tsx`: botão "Simular antecipação" (variant outline) no header, abre o modal (state `whatIfOpen`); `<TrackerWhatIfDialog/>` montado abaixo do gráfico quando há `curves`.
-  - `src/features/acompanhamento/components/tracker-what-if-dialog.test.tsx` (novo, 4 testes): mocka `@/lib/queries/tracker-plans` (upsert spy) + Dialog passthrough; curves REAIS via `buildCurves`. Cobre: valor > parcela mostra os 3 cards (+ "antes do previsto"); valor < parcela mostra alerta, esconde resultado e desabilita Aplicar; Aplicar chama `mutateAsync` com `{month_index:1, paid_amount:60000, paid_at:"2025-01-01", apply_mode:"reduce_term"}` e fecha; valor abaixo da parcela NÃO chama o mutation.
-- Files changed:
-  - src/features/acompanhamento/lib/due-date.ts (new), simulate-what-if.ts (new)
-  - src/features/acompanhamento/components/tracker-what-if-dialog.tsx (new), tracker-what-if-dialog.test.tsx (new)
-  - src/features/acompanhamento/components/tracker-spreadsheet.tsx (usa due-date.ts)
-  - src/features/acompanhamento/pages/acompanhamento-detail-page.tsx
-  - scripts/ralph/prd.json (US-021 passes:true)
-- Quality: `bun run typecheck` ok (tsc -b SPA+Worker); `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (what-if 4/4 + spreadsheet 8/8 + detail-page 5/5) verdes; `bun run test` → 728 testes em 73 arquivos TODOS passam (exit 1 apenas pelos 4 KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionados).
-- Browser: nenhuma ferramenta dev-browser/MCP disponível neste ambiente — **verificação manual no browser ainda é necessária** (abrir um plano, "Simular antecipação": trocar mês/valor/modo atualiza os 3 números na hora; valor abaixo da parcela bloqueia com mensagem; "Aplicar este lançamento" cria o lançamento e fecha; "Descartar" fecha sem salvar).
-- **Learnings for future iterations:**
-  - A simulação "e se?" é puramente em memória: copiar `curves.entriesByMonth`, sobrepor o mês hipotético e re-rodar `realizedSchedule`. Baseline dos "economizados" = Realizado ATUAL (impacto marginal do pagamento), não Normal — só o card de data de quitação é "vs Normal". Sem lançamentos prévios, Realizado == Normal, então as duas bases coincidem.
-  - Piso do valor = `curves.normal[month-1].installment` (a parcela "sem antecipação" do mês), o MESMO floor que o servidor (422) e a planilha usam — não a parcela vigente do Realizado.
-  - Modal controlado montado na página (igual ao DeleteTrackerPlanDialog): `open`/`onOpenChange` vêm da página; resetar o estado interno (mês/valor/modo) num `useEffect([open])` evita carregar o que ficou da última abertura. CurrencyInput aceita `id` (via `{...props}`) então `Label htmlFor` + `getByLabelText("Valor")` funcionam no teste.
-  - Helpers de vencimento agora em `lib/due-date.ts` (compartilhados spreadsheet↔modal). US-022 reusa em vez de duplicar.
----
-
-## 2026-05-28 - US-022 — Export Excel do acompanhamento (6 abas) reusando core/finance
-- Implemented:
-  - `src/features/acompanhamento/lib/export-tracker.ts` (novo): `exportTracker(plan, entries)` chama `buildCurves` (US-017, nenhuma lógica financeira nova) + `dueDateBR` (US-021) e monta um workbook xlsx (SheetJS, import dinâmico) com 6 abas: Plano, Lançamentos, Cronograma Realizado, Cronograma Normal, Cronograma Meta, Comparativo. Helpers de célula locais (`txt`/`money`/`integer`/`percent`, `CURRENCY_FORMAT`/`PERCENT_FORMAT`) espelham os privados do `excel-export.ts` do simulador. `getTrackerExportFilename(planName, now?)` → `acompanhamento-<slug>-YYYY-MM-DD.xlsx` (slugify NFD sem diacríticos; fallback `acompanhamento-DATA.xlsx` quando o slug fica vazio). Download via a-tag (mesmo `triggerDownload` do simulador).
-    - Abas de cronograma (`buildScheduleSheet`): uma linha por mês até `term_months`; meses truncados por quitação antecipada (índice ≥ `curve.months.length`) saem como status "Quitado" com parcela/juros/amort/saldo = 0 — alinhamento lado a lado com Normal (que vai sempre até o fim do termo). Normal nunca tem linha "Quitado" prematura.
-    - Aba Meta: quando `curves.goal.invalidAtMonth != null` devolve um aviso de 2 linhas ("Valor-meta menor que a parcela inicial…") em vez do cronograma. A aba Comparativo mostra "—" na coluna "Saldo Meta" nesse caso.
-    - Aba Comparativo: header + exatamente `term_months` linhas de dados (Mês, Vencimento, Saldo Realizado, Saldo Normal, Saldo Meta), saldo 0 após a quitação de cada curva.
-  - `src/features/acompanhamento/components/tracker-export-button.tsx` (novo): `<TrackerExportButton plan entries/>` com estado loading ("Exportando...") e erro (`role="alert"`), chama `exportTracker`. Espelha o `ExportButton` do simulador.
-  - `src/features/acompanhamento/pages/acompanhamento-detail-page.tsx`: botão "Exportar Excel" montado no toolbar do header (antes de "Simular antecipação"), recebendo `plan` + `detail.entries`.
-  - `src/features/acompanhamento/lib/export-tracker.test.ts` (novo, 14 testes): 6 abas na ordem + ≤31 chars; campos do Plano; Lançamentos (placeholder vazio, ordenação por mês, vencimento BR, label do modo); Normal com term_months linhas e sem "Quitado"; Realizado com pagamento gigante no mês 1 → linhas "Quitado" com parcela/saldo 0; Meta inválida → aviso; Comparativo com exatamente term_months linhas de dados + "—" na Meta inválida; filename slug/zero-pad/fallback; `exportTracker` mocando xlsx (vi.doMock + resetModules + re-import dinâmico) → 6 abas na ordem + click/createObjectURL/revokeObjectURL.
-- Files changed:
-  - src/features/acompanhamento/lib/export-tracker.ts (new), export-tracker.test.ts (new)
-  - src/features/acompanhamento/components/tracker-export-button.tsx (new)
-  - src/features/acompanhamento/pages/acompanhamento-detail-page.tsx
-  - scripts/ralph/prd.json (US-022 passes:true)
-- Quality: `bun run typecheck` ok (tsc -b SPA+Worker); `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (export-tracker 14/14 + detail-page 5/5) verdes; `bun run test` → 742 testes em 74 arquivos TODOS passam (exit 0 — o KNOWN FLAKY de auth-google.test.ts/US-005 não apareceu desta vez).
-- Browser: US-022 NÃO pede "Verify in browser" no AC; mesmo assim, sem ferramenta dev-browser/MCP — verificação manual opcional (abrir um plano, "Exportar Excel" baixa o .xlsx com 6 abas; meses pós-quitação aparecem como Quitado/0 nas abas de cronograma e Comparativo).
-- **Learnings for future iterations:**
-  - O export do tracker NÃO recomputa curvas — chama `buildCurves(plan, entries)` (chokepoint US-017) e formata. As abas de cronograma usam o `ScheduleMonth[]` de cada curva; o "Quitado" pós-payoff é só padding (a curva já vem truncada pelo engine).
-  - SheetJS lança em nomes de aba > 31 chars — "Cronograma Realizado" (20) cabe; mantenha qualquer aba nova abaixo de 31.
-  - Para testar a orquestração do xlsx, mocke com `vi.doMock("xlsx", …)` + `vi.resetModules()` + `await import(...)` do módulo de export DENTRO do teste (o `import("xlsx")` é lazy dentro de `exportTracker`, então pega o mock). Os builders de aba podem ser testados direto (imports de topo, sem xlsx).
-  - `getTrackerExportFilename` faz slugify NFD (remove acentos) e cai num fallback "acompanhamento-DATA.xlsx" quando o nome vira slug vazio (ex.: "!!!").
----
-
-## 2026-05-28 - US-023 — Cron Worker semanal para limpar tokens expirados de verification (OQ-4)
-- Implemented:
-  - `src/server/index.ts`: novo handler exportado `scheduled(_event, env, _ctx)` que roda `delete from "verification" where "expiresAt" < ?` com cutoff `Date.now() - 30 dias` (`VERIFICATION_RETENTION_MS = 30*24*60*60*1000`), e loga `console.log({ event: "verification_cleanup", removed: result.meta.changes ?? 0 })`. O default export passou de `export default app` para `export default { fetch: app.fetch, scheduled } satisfies ExportedHandler<Env>`, e a instância Hono virou também NAMED export `{ app }` (o runtime Cloudflare invoca `scheduled` só se estiver no objeto do default export).
-  - `wrangler.jsonc`: adicionado bloco top-level `"triggers": { "crons": ["0 4 * * 0"] }` (domingo 04:00 UTC) com comentário apontando pro handler e pra doc.
-  - `src/server/scheduled.test.ts` (novo): FakeD1 com branch `delete from "verification"` retornando `meta.changes`; `vi.useFakeTimers()` + `setSystemTime` pra fixar `Date.now()`. 3 testes — (a) remove tokens expirados há >30d e mantém válidos/recém-expirados; (b) loga `{ event: 'verification_cleanup', removed: 2 }`; (c) loga `removed: 0` quando nada passou da janela.
-  - `src/server/health.test.ts` e `src/server/auth-rate-limit-response.test.ts`: import trocado de `import app from "./index"` (default) para `import { app } from "./index"` (named), já que o default deixou de ser a instância Hono.
-  - `docs/auth-diagnosis.md`: nova seção "Limpeza periódica" descrevendo o cron, a janela de retenção de 30 dias e o log estruturado.
-- Files changed:
-  - src/server/index.ts
-  - wrangler.jsonc
-  - src/server/scheduled.test.ts (new)
-  - src/server/health.test.ts, src/server/auth-rate-limit-response.test.ts
-  - docs/auth-diagnosis.md
-  - scripts/ralph/prd.json (US-023 passes:true)
-- Quality: `bun run typecheck` ok; `bun run lint` ok (só o warning pré-existente em site-header.tsx); focados (scheduled + health + auth-rate-limit) 8/8; `bun run test` 745 testes em 75 arquivos TODOS passam (exit 1 apenas pelo KNOWN FLAKY post-teardown de auth-google.test.ts/US-005, não relacionado a esta story).
-- **Learnings for future iterations:**
-  - Para um Worker com fetch + cron, o default export TEM que ser `{ fetch, scheduled }` — uma instância Hono sozinha só expõe `fetch`, então um `export scheduled` nomeado NÃO seria chamado pelo runtime. Solução: default `{ fetch: app.fetch, scheduled }` + named `{ app }` pros testes que usam `app.request(...)`.
-  - `app.fetch` do Hono é uma arrow function bound — pode ser referenciada standalone no objeto do default export sem perder `this`.
-  - D1 `prepare(sql).bind(...).run()` devolve `{ success, meta: { changes, ... } }`; use `meta.changes` pra contar linhas deletadas/afetadas.
-  - Cron do Cloudflare vai em `wrangler.jsonc` no top-level `"triggers": { "crons": [...] }` (NÃO dentro de `vars` nem `observability`). `observability.logs` já estava habilitado, então `console.log` estruturado aparece nos Workers logs sem config extra.
+  - This branch's full feature set (auth-fix, landing, branding) is complete and green on all in-sandbox checks. The only unverified items are the inherently-manual browser/email walkthroughs and the Node-22 wrangler dry-run, all of which CI (Node 22) + a human smoke pass will cover.
+  - Full `bun run test` here takes ~9 min wall-clock (heavy vitest setup/collect ~340s+528s); scope to specific paths when iterating, run the full suite only for final story sign-off.
 ---

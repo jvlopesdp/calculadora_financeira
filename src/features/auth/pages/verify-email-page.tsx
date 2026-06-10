@@ -84,7 +84,7 @@ export function VerifyEmailPage() {
         }
         setVerifyStatus({ state: "success" });
         timeoutId = setTimeout(() => {
-          if (!cancelled) navigate("/login", { replace: true });
+          if (!cancelled) navigate("/login?verified=1", { replace: true });
         }, REDIRECT_DELAY_MS);
       } catch (err) {
         if (cancelled) return;

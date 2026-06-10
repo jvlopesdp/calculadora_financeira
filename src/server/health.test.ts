@@ -15,6 +15,7 @@ function baseEnv(environment?: string): Env {
     ENVIRONMENT: environment,
     BETTER_AUTH_SECRET: "test-secret",
     BETTER_AUTH_URL: "http://localhost",
+    PUBLIC_APP_URL: "http://localhost",
   };
 }
 
