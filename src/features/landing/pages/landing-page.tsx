@@ -13,14 +13,14 @@ export function LandingPage() {
   const year = new Date().getFullYear();
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F7EFE2] text-foreground">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-6 md:px-6">
         <BrandLogo className="h-8 w-auto md:h-10" />
         <nav className="flex items-center gap-2">
           <Button variant="ghost" asChild>
             <Link to="/login">Entrar</Link>
           </Button>
-          <Button asChild className="bg-[#B94F45] text-white hover:bg-[#B94F45]/90">
+          <Button asChild className="bg-primary text-primary-foreground hover:bg-primary/90">
             <Link to="/register">Criar conta</Link>
           </Button>
         </nav>
@@ -41,7 +41,7 @@ export function LandingPage() {
           <Button
             size="lg"
             asChild
-            className="bg-[#B94F45] text-white hover:bg-[#B94F45]/90"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Link to="/financiamento">Começar a simular</Link>
           </Button>

@@ -1,161 +1,21 @@
 # Ralph Progress Log
-Started: Tue Jun  2 17:37:47 PDT 2026
+Started: Tue Jun  9 19:30:36 PDT 2026
 ---
 
 ## Codebase Patterns
-- Static assets live under `public/` (Vite default `publicDir`; there is no explicit `publicDir` in vite.config.ts). Files in `public/` are copied verbatim to `dist/client/` at build. Reference them by absolute path from the SPA (e.g. `/brand/icon.svg`).
-- Build is `tsc -b && vite build` via the @cloudflare/vite-plugin; **vite build is SLOW (~6 min)** because it bundles xlsx + fonts. Run builds in background and poll the process, not the output file (output is buffered until the end).
-- `bun run typecheck` = `tsc -b --noEmit`; `bun run lint` = `eslint .`; `bun run test` = `vitest run` (foreground only).
-- `Env` (`src/server/env.d.ts`) has all-required fields. Adding a new required field breaks every fake-`Env` in `src/server/**/*.test.ts` — grep `BETTER_AUTH_URL:` and add the field next to it in each.
-- Server auth/url logic is written as pure exported helpers and unit-tested directly (never instantiate `betterAuth()` — it starts a background D1 init promise that rejects with a fake DB). See `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl` in `auth.ts`.
-- `wrangler` CLI requires Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs cannot be executed here — defer to CI.
-- Rasterize brand SVGs with ImageMagick: `convert -background none -density 300 -resize WxH in.svg out.png` (`/usr/bin/convert` exists; `rsvg-convert`/`inkscape`/`magick` do not). NOTE: `logo-nome.svg` is a WHITE wordmark — never place it on white/cream; back it with a dark/brand-colored fill.
-- Transactional emails (`src/server/email-templates.ts`) go through `renderBrandedEmail` — keep CSS fully inline (no `<style>`), pass RAW (unescaped) `name`/`url` (the helper escapes everything), and thread `publicAppUrl: env.PUBLIC_APP_URL` for the logo/footer links.
-
-## 2026-06-02 17:50 - US-001
-- Moved brand SVGs into a dedicated stable folder and wired them for build.
-- Created `public/brand/`. Moved root `logo-nome.svg` → `public/brand/logo-nome.svg`, `logo-calculadora-financeira.svg` → `public/brand/logo-mark.svg`, `icon-theme.svg` → `public/brand/icon.svg`. Originals removed from repo root by the move.
-- No `public/vite.svg` existed (the repo had no `public/` dir at all); `/vite.svg` is only referenced in `index.html` and will be replaced in US-002.
-- Files changed: added `public/brand/{logo-nome.svg,logo-mark.svg,icon.svg}`; removed root SVGs.
-- Verified: `bun run typecheck` passes; `bun run build` succeeds and emits `dist/client/brand/{logo-nome.svg,logo-mark.svg,icon.svg}`.
-- **Learnings for future iterations:**
-  - The first build on this branch took ~6m14s — budget time accordingly; subsequent incremental builds may be faster.
-  - `logo-nome.svg` is large (~20KB) and is the full wordmark; `logo-mark.svg` (~865B) is the compact mark; `icon.svg` (~950B) is the favicon/touch icon. US-002 should point favicon + apple-touch-icon at `/brand/icon.svg`.
-  - US-003 BrandLogo uses `/brand/logo-nome.svg`; BrandMark uses `/brand/logo-mark.svg`.
+- Theme tokens live in `src/index.css` (`:root` light + `.dark`) and are exposed as Tailwind utilities via `@theme` (`--color-*`). Use semantic classes (`bg-background`, `bg-primary`, `text-primary-foreground`, `text-foreground`, `text-muted-foreground`) instead of hex colors so light/dark mode stay consistent. `--primary` ≈ the brand red (#B94F45), `--background` ≈ the brand creme (#F7EFE2).
+- Quality gate: `bun run typecheck`, `bunx eslint <file>` (or `bun run lint`), `bun run test`. tsc emits a harmless `setlocale` warning — exit code is what matters.
+- No browser/MCP tooling available in this environment; UI stories' "Verify in browser" AC must be flagged as needing manual verification.
 ---
 
-## 2026-06-02 18:45 - US-002
-- Updated `index.html` with brand favicon, title, and metadata.
-- Changes in `index.html`: favicon `<link rel="icon">` now points to `/brand/icon.svg` (was `/vite.svg`); added `<link rel="apple-touch-icon" href="/brand/icon.svg">`; added `<meta name="theme-color" content="#B94F45">`; added `<meta name="description">` (≤160 chars); `<title>` changed from 'Simulador Financeiro' to 'Calculadora Financeira.app'.
-- Files changed: `index.html`.
-- Verified: `grep -rn 'vite.svg' src/ index.html public/` returns nothing; `bun run typecheck` passes; `bun run lint` passes (0 errors, only a pre-existing react-refresh warning in site-header.tsx).
-- Browser verification: NO browser/dev-browser MCP tooling is available in this environment — manual browser verification of favicon + tab title still needed (NOK for automated check, but functionally trivial for a static index.html change).
+## 2026-06-09 - US-001
+- Replaced hardcoded hex colors in the Landing page with theme tokens.
+- Files changed: `src/features/landing/pages/landing-page.tsx`
+  - `bg-[#F7EFE2]` -> `bg-background` on the root container
+  - `bg-[#B94F45] text-white hover:bg-[#B94F45]/90` -> `bg-primary text-primary-foreground hover:bg-primary/90` on the "Criar conta" and "Começar a simular" CTAs
+- Quality checks: typecheck passes; eslint on the file passes. No hex colors remain (grep clean).
 - **Learnings for future iterations:**
-  - No browser MCP is configured here; stories with "Verify in browser" ACs cannot be auto-verified — note manual verification and rely on typecheck/lint/tests.
-  - `index.html` lives at repo root (`/workspace/index.html`), not under `src/` or `public/`. The description meta uses the exact suggested copy. Title is the canonical brand string 'Calculadora Financeira.app' — reuse this exact casing elsewhere (alt-text, og tags) for consistency.
-  - Editing `index.html` triggers a harmless "LF will be replaced by CRLF" git warning on this checkout.
----
-
-## 2026-06-02 18:52 - US-003
-- Created reusable React brand components `BrandLogo` and `BrandMark`.
-- Files changed: added `src/components/brand/brand-logo.tsx`, `src/components/brand/brand-mark.tsx`, `src/components/brand/brand-logo.test.tsx`, `src/components/brand/brand-mark.test.tsx`.
-- `BrandLogo` renders `<img src="/brand/logo-nome.svg" alt="Calculadora Financeira.app" loading="eager">`; `BrandMark` uses `/brand/logo-mark.svg`. Both take an optional `className` prop (strict interface, no `any`).
-- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); brand tests pass (4/4) via `bun run test -- src/components/brand`.
-- **Learnings for future iterations:**
-  - Test pattern: smoke-test `<img>` via `screen.getByAltText("Calculadora Financeira.app")` then assert `toHaveAttribute("src", ...)`. Both logos share the same alt-text, so when both are mounted in the same tree (e.g. US-004 AppShell with responsive show/hide), query by `src` or use `getAllByAltText` to disambiguate.
-  - US-004 will wrap these in `<Link>` (BrandLogo → /financiamento in AppShell, → / in AuthLayout) and apply responsive classes (`hidden md:block` / `md:hidden`).
-  - Vitest startup here is heavy (~50s for env/collect even for 2 trivial files); scope `bun run test -- <path>` to the story's files when iterating.
----
-
-## 2026-06-02 18:59 - US-004
-- Applied BrandLogo/BrandMark to the authenticated AppShell (sidebar header) and the AuthLayout.
-- `src/components/app-sidebar.tsx`: replaced the `IconInnerShadowTop` + "Calculadora Financeira" `<span>` placeholder inside the existing `<Link to="/financiamento">` with `<BrandLogo className="hidden h-8 w-auto md:block" />` + `<BrandMark className="h-8 w-auto md:hidden" />` (responsive: wordmark on >=md, compact mark on mobile). Removed the now-unused `IconInnerShadowTop` import. Gave the SidebarMenuButton `h-auto` so the taller logo isn't clipped.
-- `src/app/auth-layout.tsx`: removed the old `<header>` + serif "Calculadora Financeira" `<span>`; render a centered `<BrandLogo className="h-10 w-auto" />` wrapped in `<Link to="/">` above the `<Outlet />`.
-- Added `src/app/auth-layout.test.tsx`: asserts the BrandLogo renders with `/brand/logo-nome.svg` and its link points to `/`, and that the routed outlet content renders.
-- Files changed: `src/components/app-sidebar.tsx`, `src/app/auth-layout.tsx`, `src/app/auth-layout.test.tsx`.
-- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); tests green — app-sidebar (5), site-header (15), brand (4), App routing (8), protected-route (4), auth-layout (2).
-- The literal string 'Simulador Financeiro' was already absent from `src/` (the prior placeholder was the brand text + Vite icon "Calculadora Financeira"); AC satisfied. AppShell page-title fallback "Calculadora Financeira" in `site-header.tsx getPageTitle` is a route title (not a logo placeholder) and is intentionally kept.
-- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual browser check of the logo in the sidebar/auth pages and the mobile BrandMark swap still needed.
-- **Learnings for future iterations:**
-  - The "logo placeholder" the PRD calls 'Simulador Financeiro' actually lived as `IconInnerShadowTop` + a "Calculadora Financeira" text span in `app-sidebar.tsx`, and a serif text span in `auth-layout.tsx`. Both are now brand components.
-  - `app-sidebar.test.tsx` queries the brand link by `getByRole("link", { name: /calculadora financeira/i })` — the BrandLogo/BrandMark `alt="Calculadora Financeira.app"` satisfies this regex, so the test stayed green without edits. Both imgs share that alt, so within the single sidebar link the accessible name is the alt repeated — still matches.
-  - In jsdom the Tailwind `hidden`/`md:block` classes don't apply (no CSS), so both BrandLogo and BrandMark are in the a11y tree during tests; query brand imgs by `src` (or `getAllByAltText`) to disambiguate when both are mounted.
-  - AuthLayout had no pre-existing test; added one. It renders under a `<Route element={<AuthLayout/>}>` parent with child routes for the `<Outlet/>`.
----
-
-## 2026-06-02 19:20 - US-005
-- Added `PUBLIC_APP_URL` to the typed `Env` and rewrote the verify/reset email links so they land on the existing SPA routes (`/verify-email?token=` and `/reset-password?token=`) instead of Better Auth's `/api/auth/*` endpoint (which falls through to the SPA 404).
-- `src/server/env.d.ts`: added required `PUBLIC_APP_URL: string` field to `Env`.
-- `wrangler.jsonc`: added `PUBLIC_APP_URL` to `vars` = `https://calculadorafinanceira.app` with a comment documenting the local-dev override (`.dev.vars` / `wrangler dev --var`).
-- `.env.example`: documented `PUBLIC_APP_URL=http://localhost:5173` for local dev.
-- `src/server/auth.ts`: added pure exported helpers `buildVerificationUrl(publicAppUrl, originalUrl)` and `buildResetUrl(publicAppUrl, originalUrl)` plus a non-throwing `getUrlParam` helper. They extract `token` (and preserve `callbackURL` for verify) via `new URL(...).searchParams`, trim a trailing slash from the base, and encode the token. `sendVerificationEmail` / `sendResetPassword` now pass `env.PUBLIC_APP_URL` through these helpers to the templates.
-- `src/server/auth.test.ts` (new): 9 tests covering verify+reset rewrites, callbackURL preservation/omission, trailing-slash trim, non-standard URL token extraction, and malformed-URL empty-token fallback. Follows the `googleSocialProvider` pattern — tests the pure helpers directly, never instantiating `betterAuth()` (which fires a background D1 init promise → unhandled rejections with a fake DB).
-- Because `PUBLIC_APP_URL` is a required `Env` field, every server test that builds a fake `Env` needed the field added: `auth-rate-limit-response`, `email`, `health`, `middleware/require-user`, `routes/payments|scenarios|tracker-entries|tracker-plans`, `scheduled`, `turnstile`.
-- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); full server suite green — 134 tests across 13 files (auth.test.ts 9/9).
-- **`wrangler deploy --dry-run` AC could NOT be run**: this environment has Node v20.20.2 but wrangler requires >= v22. The config change is a single valid `vars` entry (typecheck/lint cover the rest). NOK only due to the environment Node version — needs to be confirmed in CI where Node 22 is present.
-- **Learnings for future iterations:**
-  - `Env` (`src/server/env.d.ts`) is a REQUIRED-fields interface. Adding any new required field forces updating EVERY `baseEnv()`/fake-`Env` helper across `src/server/**/*.test.ts` or typecheck fails. Grep for `BETTER_AUTH_URL:` to find them all — they sit next to it.
-  - Server auth helpers are deliberately pure + exported so they can be unit-tested WITHOUT calling `betterAuth()` (which starts a background D1 init promise that rejects under a fake DB). Follow this pattern for any new auth logic — see `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl`.
-  - `wrangler` CLI needs Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs can't be executed here — note as a CI-only check.
-  - US-007 will refactor the email templates and needs `publicAppUrl` threaded into `verifyEmailTemplate`/`resetPasswordTemplate`; the callers in `auth.ts` already build the final action URL via these helpers, so US-007 should pass `env.PUBLIC_APP_URL` as the separate `publicAppUrl` template input (for the logo/footer links), distinct from the action `url`.
----
-
-## 2026-06-02 19:24 - US-006
-- After e-mail verification, `verify-email-page.tsx` now redirects to `/login?verified=1` (kept `REDIRECT_DELAY_MS` + `replace: true`).
-- `login-page.tsx`: reads `searchParams.get("verified") === "1"` into `showVerifiedBanner` state; renders a success banner (`role="status"`, `aria-live="polite"`, `text-emerald-600 dark:text-emerald-400`) with text "Seu e-mail foi verificado. Entre com seu acesso." just above the `<Form>` (above GoogleSignInButton). Banner auto-dismisses after 8s (useEffect setTimeout cleared on unmount) OR when the form is submitted (`setShowVerifiedBanner(false)` in `onSubmit`).
-- Files changed: `src/features/auth/pages/verify-email-page.tsx`, `src/features/auth/pages/login-page.tsx`, `src/features/auth/pages/login-page.test.tsx`, `src/features/auth/pages/verify-email-page.test.tsx`.
-- Tests: added 2 login-page tests (banner with `?verified=1`, no banner without param); updated the verify-email success test to assert the redirect carries `verified=1` (added a `LoginRouteStub` reading `useSearchParams`). login (15) + verify (7) green; typecheck + lint clean (only pre-existing site-header react-refresh warning).
-- Browser verification: NO browser MCP tooling available here — manual check of the emerald banner + 8s auto-dismiss still needed (AC "Verify in browser" deferred).
-- **Learnings for future iterations:**
-  - Banner pattern mirrors the existing `?flash=` message (same emerald classes + `aria-live`); both live above the form. Re-use this convention for any new auth status banners.
-  - In React Router tests, route matching ignores query strings, so a `/login` route element renders for `/login?verified=1` too. To assert the query actually arrived, render a stub that reads `useSearchParams()` (see `LoginRouteStub`) instead of a plain `<div>`.
----
-
-## 2026-06-02 19:40 - US-007
-- Refactored `src/server/email-templates.ts` around a shared exported `renderBrandedEmail({ heading, intro, ctaLabel, ctaUrl, closing, publicAppUrl })` helper that emits brand-styled HTML (CSS exclusively inline, no `<style>` block) + a plain-text variant. `verifyEmailTemplate`/`resetPasswordTemplate` now delegate to it and take an extra `publicAppUrl` input; subjects, personalized greeting, and the verify/reset warnings are preserved.
-- HTML layout: body bg `#F7EFE2`, centered `max-width:600px` container, white card `border-radius:12px` `padding:32px` `border-top:4px solid #B94F45`, brand-red CTA button (`#B94F45` / white, `14px 24px`, `border-radius:8px`), textual fallback link, footer in `#7A7A7A` with `© {year} Calculadora Financeira.app · calculadorafinanceira.app`. Font stack `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` (single-quoted inner names so it survives the double-quoted style attribute).
-- Generated `public/brand/email-logo.png` (480×118, transparent RGBA) by exporting `public/brand/logo-nome.svg` with ImageMagick `convert -background none -density 300 -resize 480x120`. No placeholder needed — real export succeeded.
-- Updated callers in `src/server/auth.ts` to pass `publicAppUrl: env.PUBLIC_APP_URL` to both templates (distinct from the already-rewritten action `url`).
-- Added `src/server/email-templates.test.ts` (6 tests): verify+reset HTML contain `/brand/email-logo.png`, `#B94F45`, and the action url; greeting + warnings preserved; escapeHtml applied to hostile url (`"><script>`) and name (with quotes); text variants contain the raw url + branded signature; renderBrandedEmail trims a trailing slash from publicAppUrl and emits no `<style>` block.
-- Files changed: `public/brand/email-logo.png` (new), `src/server/email-templates.ts`, `src/server/email-templates.test.ts` (new), `src/server/auth.ts`.
-- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); full suite green — 767 tests / 80 files.
-- **DESIGN NOTE / potential follow-up (NOK risk):** `logo-nome.svg` is a *white* wordmark (`fill="white"` / `#F2F2F7`, only `.app` is brick-red), designed for dark backgrounds. On a plain white email card it would be nearly invisible, so the logo is placed on a brand-red (`#B94F45`) rounded header band inside the white card. This keeps it legible and looks intentional, but if a light-background logo variant is later produced, swap the band for a plain header. Email rendering itself was NOT verified in a real client (no email/browser tooling here).
-- **Learnings for future iterations:**
-  - ImageMagick `convert` IS available in this sandbox (`/usr/bin/convert`); `rsvg-convert`/`inkscape`/`magick` are not. Use `convert -background none -density 300 -resize WxH in.svg out.png` to rasterize brand SVGs.
-  - The brand wordmark (`logo-nome.svg`) is white-on-transparent → never place it directly on white/cream; back it with a dark or brand-colored fill.
-  - Email HTML must keep all CSS inline (no `<style>`) and use single-quoted font names inside the double-quoted `style="..."` attribute, e.g. `'Segoe UI'`, or the attribute breaks.
-  - `renderBrandedEmail` escapes ALL caller strings itself — callers must pass RAW `name`/`url` (the greeting builds the raw name); do not pre-escape or you double-encode.
----
-
-## 2026-06-02 19:48 - US-008
-- Created the public LandingPage and made the root route `/` session-sensitive (anonymous → landing, authenticated → /financiamento redirect). Most code was already staged uncommitted on the branch from a prior pass; this iteration validated it against every AC, ran quality checks, and committed it.
-- `src/features/landing/pages/landing-page.tsx`: `LandingPage` — mobile-first Tailwind + shadcn `<Button asChild>`. Public header (`<BrandLogo>` left; ghost "Entrar" → /login + primary "Criar conta" → /register right). Hero `<h1 class="text-4xl md:text-6xl font-bold">` "Decisões financeiras com clareza" + muted subtitle; primary CTA `size="lg"` → /financiamento, secondary `variant="outline"` → /login. Motivation paragraph (≤3 frases). Footer `© {new Date().getFullYear()} Calculadora Financeira.app` + Entrar link. Brand palette: body `bg-[#F7EFE2]` (creme), CTAs `bg-[#B94F45]` (vermelho-tijolo).
-- `src/app/routes.tsx`: replaced `<Navigate to="/financiamento" />` at `/` with a `RootRoute` wrapper that calls `useSession()` — `isPending → null` (no flicker), `user → <Navigate to="/financiamento" replace />`, else `<LandingPage />`.
-- `src/features/landing/pages/landing-page.test.tsx` (5 tests): hero h1, both CTA hrefs, motivation block, footer year + Entrar link.
-- `src/app/App.test.tsx`: replaced the old "redirects root to /financiamento" test with two — anonymous visitor at `/` sees the LandingPage hero + "Começar a simular" CTA; authenticated user at `/` lands on the FinanciamentoPage (Navigate replace). Uses the existing `setSession()` helper that mocks `@/lib/queries/session`.
-- Files changed: `src/features/landing/pages/landing-page.tsx` (new), `src/features/landing/pages/landing-page.test.tsx` (new), `src/app/routes.tsx`, `src/app/App.test.tsx`.
-- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); `bun run test -- src/features/landing src/app/App.test.tsx` → 14/14 green (landing 5, App routing 9).
-- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual browser check of the landing hero/CTAs/palette and the authenticated redirect still needed (deferred to US-010 smoke / manual).
-- **Learnings for future iterations:**
-  - The root route is now `RootRoute` (not a bare `<Navigate>`). Any test that exercises `/` must mock `useSession` via the existing `setSession({ data, isPending })` helper in `App.test.tsx` (it maps `data.user`/`data.session` onto the `useSession` shape). `isPending: true` at `/` renders nothing.
-  - `useSession()` returns the flat `{ user, session, isPending, isError }` shape — `RootRoute` reads `user`/`isPending` directly (no `.data` indirection).
-  - US-009 will add `<Link to="/privacidade">Privacidade</Link>` to this footer (next to the Entrar link) and a public `/privacidade` route outside the AppShell — landing-page.test.tsx footer assertions will need the new link.
----
-
-## 2026-06-02 19:51 - US-009
-- Added a public `/privacidade` placeholder route and a footer link to it on the LandingPage.
-- `src/features/landing/pages/privacidade-page.tsx` (new): `PrivacidadePage` — BrandLogo (wrapped in `<Link to="/">`) at top, `<h1>` "Política de privacidade", placeholder paragraph, "Voltar para o início" → /. A `useEffect` appends `<meta name="robots" content="noindex">` to `document.head` on mount and removes it on unmount. Reuses the landing's brand palette (`bg-[#F7EFE2]`, `#B94F45` accent link).
-- `src/app/routes.tsx`: added `<Route path="/privacidade" element={<PrivacidadePage />} />` as a public route OUTSIDE both AuthLayout and AppShell (sits right after the `/` RootRoute).
-- `src/features/landing/pages/landing-page.tsx`: footer now wraps the "Entrar" link in a `<nav>` and adds a discreet `<Link to="/privacidade">Privacidade</Link>` (same `text-sm text-muted-foreground` footer styling).
-- `src/features/landing/pages/landing-page.test.tsx`: added a test asserting the footer has a Privacidade link with `href="/privacidade"`.
-- `src/features/landing/pages/privacidade-page.test.tsx` (new): asserts title + placeholder paragraph render, the back link points to `/`, and the robots noindex meta is inserted on mount and removed on unmount.
-- Files changed: `src/features/landing/pages/privacidade-page.tsx` (new), `src/features/landing/pages/privacidade-page.test.tsx` (new), `src/app/routes.tsx`, `src/features/landing/pages/landing-page.tsx`, `src/features/landing/pages/landing-page.test.tsx`.
-- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); `bun run test -- src/features/landing` → 9/9 green (landing 6, privacidade 3); `bun run test -- src/app/App.test.tsx` → 9/9 still green (routes.tsx change didn't regress routing).
-- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual check of the /privacidade page render + noindex meta + footer link still needed (deferred to US-010 smoke / manual).
-- **Learnings for future iterations:**
-  - Public routes (no auth chrome) go directly under `<Routes>` in `routes.tsx`, as siblings of `/` — NOT inside the `<Route element={<AuthLayout/>}>` or `<Route element={<AppShell/>}>` wrappers. `/privacidade` follows this pattern.
-  - The `document.head` meta-injection pattern (create element → appendChild in useEffect → removeChild in cleanup) is testable in jsdom: query `document.head.querySelector('meta[name="robots"]')` after render and after `unmount()`.
-  - US-010 is the final story: a full manual smoke (signup→verify→login→reset→branding) that can't be fully automated here (no browser/email tooling, wrangler needs Node 22). It is primarily a verification/checklist story.
----
-
-## 2026-06-02 20:03 - US-010
-- Final end-to-end smoke / verification story for the auth-fix + landing + branding branch. Validated the full signup→verify→login→reset→branding wiring at the code level and ran every automated quality gate this environment supports.
-- Automated gates (ALL GREEN): `bun run typecheck` clean; `bun run lint` clean (0 errors, only the pre-existing site-header react-refresh warning); `bun run test` → **777 tests / 82 files all passing**.
-- Code-level confirmation of each smoke step (grep-verified, no code changes needed):
-  - **Landing (anon /):** `landing-page.tsx` renders hero "Decisões financeiras com clareza" + "Começar a simular" CTA; brand palette (`bg-[#F7EFE2]` creme, `#B94F45` CTAs); footer with Entrar + Privacidade links. `RootRoute` in `routes.tsx` gates `/` on `useSession()`.
-  - **AuthLayout branding:** BrandLogo centered above `<Outlet/>` (US-004) — covered by `auth-layout.test.tsx`.
-  - **Verify email URL:** `auth.ts` `buildVerificationUrl` emits `${PUBLIC_APP_URL}/verify-email?token=...` (preserves callbackURL); `buildResetUrl` emits `${PUBLIC_APP_URL}/reset-password?token=...`.
-  - **Email branding:** `email-templates.ts` renders `<img src="${appUrl}/brand/email-logo.png" width="240" height="60">` and `#B94F45` CTA via `renderBrandedEmail`; covered by `email-templates.test.ts` (6 tests).
-  - **Verify → login redirect:** `verify-email-page.tsx` navigates to `/login?verified=1` (replace); `login-page.tsx` shows the `role="status"` emerald banner "Seu e-mail foi verificado. Entre com seu acesso." — covered by login/verify page tests.
-  - **Favicon/metadata:** `index.html` favicon + apple-touch-icon `/brand/icon.svg`, `theme-color #B94F45`.
-  - **Responsive AppShell:** `app-sidebar.tsx` shows BrandLogo (`hidden md:block`) / BrandMark (`md:hidden`).
-  - **Privacidade:** public `/privacidade` route + noindex meta (US-009).
-- Files changed: none (verification-only story); `scripts/ralph/prd.json` (passes flag) + this log.
-- **DEFERRED / environment-blocked ACs (NOK here, must be confirmed manually or in CI):**
-  - Live browser walkthrough (anon landing render, register page logo, /verify-email redirect timing, login banner visibility, reset form, mobile BrandMark swap, favicon in tab): **no browser/dev-browser MCP is configured in this sandbox** — cannot automate. All corresponding behaviors are unit-tested.
-  - Capturing the actual sent email HTML via Resend dev console / `sendVerificationEmail` interception: **no email tooling here** — template HTML is instead asserted by `email-templates.test.ts`.
-  - `bunx wrangler deploy --dry-run`: **wrangler needs Node ≥22; sandbox runs Node v20.20.2** — defer to CI.
-- **Learnings for future iterations:**
-  - This branch's full feature set (auth-fix, landing, branding) is complete and green on all in-sandbox checks. The only unverified items are the inherently-manual browser/email walkthroughs and the Node-22 wrangler dry-run, all of which CI (Node 22) + a human smoke pass will cover.
-  - Full `bun run test` here takes ~9 min wall-clock (heavy vitest setup/collect ~340s+528s); scope to specific paths when iterating, run the full suite only for final story sign-off.
+  - Theme tokens are already defined for both light and dark in `src/index.css`; the brand creme/red map cleanly to `--background`/`--primary`, so no new CSS was needed.
+  - The default shadcn `Button` variant is already `bg-primary`; the explicit classes here are kept to satisfy the AC wording but are effectively redundant for the primary CTAs.
+  - Browser verification could not be performed (no dev-browser/MCP tools in this environment) — manual browser check of light/dark still recommended for US-002/US-003.
 ---
