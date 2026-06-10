@@ -28,7 +28,7 @@ export function LandingPage() {
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-8 px-4 py-12 text-center md:px-6">
         <div className="flex flex-col items-center gap-4">
-          <h1 className="text-4xl font-bold tracking-tight md:text-6xl">
+          <h1 className="text-4xl font-bold tracking-tight text-foreground md:text-6xl">
             Decisões financeiras com clareza
           </h1>
           <p className="max-w-2xl text-lg text-muted-foreground md:text-xl">

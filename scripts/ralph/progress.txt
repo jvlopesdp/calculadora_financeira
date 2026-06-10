@@ -19,3 +19,15 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - The default shadcn `Button` variant is already `bg-primary`; the explicit classes here are kept to satisfy the AC wording but are effectively redundant for the primary CTAs.
   - Browser verification could not be performed (no dev-browser/MCP tools in this environment) — manual browser check of light/dark still recommended for US-002/US-003.
 ---
+
+## 2026-06-09 - US-002
+- Corrigido contraste do texto do hero em dark mode na Landing.
+- Files changed: `src/features/landing/pages/landing-page.tsx`
+  - h1 do hero agora usa explicitamente `text-foreground` (antes apenas herdava do container); subtítulos já usavam `text-muted-foreground`.
+- Verificação de contraste WCAG (oklch -> sRGB -> ratio): light fg/bg 16.32:1, light muted-fg/bg 7.15:1, dark fg/bg 16.03:1, dark muted-fg/bg 11.74:1. Todos passam AA (>=4.5:1) em light e dark.
+- Quality checks: typecheck passes; eslint no arquivo passes.
+- **Learnings for future iterations:**
+  - Os tokens `--foreground`/`--muted-foreground` do tema já têm contraste AA folgado em ambos os modos; não há necessidade de cores especiais para o hero. Use sempre os tokens semânticos.
+  - Para auditar contraste sem browser, dá pra converter oklch->sRGB e calcular o ratio WCAG num script bun (ver /tmp durante esta iteração). Útil porque OKLCH L != luminância WCAG.
+  - Browser verification não pôde ser feita (sem dev-browser/MCP neste ambiente) — checagem visual manual de light/dark ainda recomendada.
+---
