@@ -73,3 +73,21 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - Quando um caller precisa esconder a faixa (ex.: o BrandMark compacto já cobrir mobile), use `containerClassName="hidden ..."` em vez de re-introduzir uma prop "noStrip" ou copiar o `<img>` solto.
   - Para visual regressions futuras na marca, os 4 testes em `brand-logo.test.tsx` já cobrem: src/alt do `<img>`, sizing via `className`, presença de `bg-primary` na faixa e merge de `containerClassName`.
 ---
+
+## 2026-06-10 - US-005
+- Verificação de cobertura: todos os usos de `Select`/`<select>` no app já apontam para o componente padronizado `@/components/ui/select` (introduzido em US-004). Não houve alteração de código de produção nesta story — apenas validação e marcação de `passes: true`.
+- Auditoria realizada:
+  - `grep "<select[\\s>]"` em `src/` → 0 ocorrências (nenhum `<select>` nativo).
+  - `grep "<option"` em `src/` → 0 ocorrências.
+  - `grep "appearance-none"` em `src/` → 0 (não restou o estilo do select nativo antigo).
+  - `grep "ui/select"` em `src/` → 8 callers em features + 5 test files com o mock, todos pelo caminho padronizado: `simulate-next-payment-card`, `payment-form-dialog`, `acompanhamento-novo-page`, `tracker-what-if-dialog`, `tracker-spreadsheet` (seletor de Modo por linha), `amortization-table`, `rent-vs-buy-card`, `financing-form`.
+  - `grep "SelectHTMLAttributes"` em `src/` → 1 ocorrência apenas em `src/tests/select-mock.tsx` (intencional — o mock de teste expõe um `<select>` nativo para jsdom).
+  - `scenario-combobox.tsx` é um combobox construído sobre `DropdownMenu` shadcn (não um `Select` nativo) e já usa tokens do tema — fora do escopo desta story.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src` exit 0 (apenas warnings de `react-refresh/only-export-components` em `site-header.tsx` e `select-mock.tsx`, sem erros); `vitest run` → 82 test files, 779 testes, todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (focus ring no Trigger, dark mode no Content, comportamento do Modo por linha no tracker-spreadsheet).
+- Files changed: nenhum arquivo de produção. Apenas `scripts/ralph/prd.json` (passes:true) e este `progress.txt`.
+- **Learnings for future iterations:**
+  - US-004 ja cumpriu o trabalho material do US-005 ao migrar os 8 callers do Select de uma só vez. Stories de "padronizar tudo" tendem a ser absorvidas naturalmente por uma story upstream bem feita; verificar primeiro com `grep` antes de presumir trabalho pendente.
+  - Pra auditar "nenhum dropdown nativo restante", os greps que dão certeza são: `<select[\s>]`, `<option`, `appearance-none` e `SelectHTMLAttributes`. Se todos voltarem vazios (exceto o test mock), AC#3 está satisfeita.
+  - Combobox-like (`scenario-combobox.tsx`) construído sobre `DropdownMenu` é OK — usa tokens do tema. Não confundir com o "Select" do AC, que é especificamente sobre o componente `@/components/ui/select` e `<select>` nativo.
+---
