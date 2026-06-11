@@ -184,3 +184,21 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - Quando renomear títulos de KPI em `build-tracker-kpis`, atualize os testIds em `acompanhamento-detail-page.test.tsx` na mesma PR — o slug muda junto e os getByTestId quebram em silêncio (mensagem clara, mas só na rodada).
 ---
 
+## 2026-06-10 - US-010
+- Story essentially já estava materialmente implementada como side-effect do US-008/US-009: o componente `TrackerCurvesChart` (`src/features/acompanhamento/components/tracker-curves-chart.tsx`) é renderizado em `AcompanhamentoDetailPage` (linha 158), que é o componente exibido em `/meus-financiamentos/:id`. O builder de dados (`src/features/acompanhamento/lib/build-tracker-chart-views.ts`) já reusa `buildCurves` e já mapeia cada série para um token `--chart-N` do tema (Realizado=`var(--chart-1)`, Normal/Previsto=`var(--chart-3)`, Meta=`var(--chart-2)`).
+- Verificações realizadas para confirmar cada AC:
+  - AC#1 "Previsto x Real reaproveitando build-curves": `TrackerCurvesChart` consome o `curves` memoizado de `useMemo(() => buildCurves(plan, entries))` na página, e `buildTrackerChartViews` emite duas `ChartView`s ("balance" + "interest") com séries Realizado (Real) e Normal (Previsto, cronograma original).
+  - AC#2 "tokens --chart-1..--chart-5": confirmados todos os 5 tokens em `src/index.css` (linhas 25-29 light, 80-84 dark, 133-137 expostos via @theme). As 3 cores usadas pelo chart caem em `--chart-1`, `--chart-2`, `--chart-3`.
+  - AC#3 "reflete os lançamentos ao carregar": `buildCurves(plan, entries)` recebe `detail.entries` direto do `useTrackerPlan` (carregado na mount); não há ação do usuário envolvida.
+- Single test-only change: adicionado um regression guard em `acompanhamento-detail-page.test.tsx` ("renders the Previsto x Real chart wired with the loaded detail") que asserta a presença do `data-testid="tracker-curves-chart"` quando o detail carrega com entries. Isso impede que uma futura remoção acidental do `<TrackerCurvesChart>` da página passe despercebida.
+- Files changed:
+  - `src/features/acompanhamento/pages/acompanhamento-detail-page.test.tsx` (1 novo `it` block)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` no arquivo editado exit 0; `vitest run` (suite inteira) → 84 test files, 794 testes, todos passam (+1 vs US-009).
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (Realizado/Normal/Meta com cores do tema em light e dark; comportamento de quitação antecipada com marcador).
+- **Learnings for future iterations:**
+  - Uma story declarada "exibir X na nova aba" pode já estar materialmente satisfeita quando a página da nova aba foi montada via reuso de componentes (caso de US-008 reusando `AcompanhamentoDetailPage`). Antes de qualquer trabalho, vale rodar `grep` pelas peças mencionadas no AC (`buildCurves`, `TrackerCurvesChart`) e ler a página alvo — se já estiver ligado, a story vira "add regression guard + verify quality gate" em vez de implementação.
+  - O componente do chart Previsto×Real é `TrackerCurvesChart`; ele tem testes próprios em `tracker-curves-chart.test.tsx`, e o builder dos dados (`buildTrackerChartViews`) tem cobertura própria em `build-tracker-chart-views.test.ts` (incluindo asserts dos tokens `var(--chart-N)`). Para futuras stories que mexam no chart (US-013 "real-time updates"), os testes-âncora estão lá — não tem que recriar do zero.
+  - Mantenha o page-test (`acompanhamento-detail-page.test.tsx`) mockando `TrackerCurvesChart`: ele depende de `ResizeObserver` e de SVG layout, e o objetivo do page-test é foco em wiring/KPIs/spreadsheet/delete — render do chart real é responsabilidade de `tracker-curves-chart.test.tsx`.
+---
+

@@ -179,6 +179,12 @@ describe("AcompanhamentoDetailPage", () => {
     expect(reduced).toHaveTextContent(/m[êe]s/);
   });
 
+  it("renders the Previsto x Real chart wired with the loaded detail", () => {
+    setDetail(makePlan(), [makeEntry(1), makeEntry(2)]);
+    renderPage();
+    expect(screen.getByTestId("tracker-curves-chart")).toBeInTheDocument();
+  });
+
   it("renders 'Editar plano' as a disabled placeholder", () => {
     setDetail(makePlan(), []);
     renderPage();
