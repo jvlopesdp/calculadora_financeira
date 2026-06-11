@@ -316,3 +316,18 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - Padrão do fake-D1 nestes testes: implementar apenas o(s) shape(s) SQL que o handler emite e jogar `throw new Error(\`Unhandled SQL: ${sql}\`)` em qualquer outro caso. Falha barulhento quando o handler ganha uma query nova sem teste cobrindo. Os mocks de `auth.api` seguem a mesma lógica — expõem só `getSession`/`changeEmail`/`deleteUser`.
   - Frontend (US-017/US-018/US-019) deve chamar diretamente `POST /api/auth/change-password` (Better Auth) com `{ currentPassword, newPassword, revokeOtherSessions: true }` — NÃO há wrapper nosso. Para change-email vai por `PATCH /api/account` (nosso). Para delete vai por `DELETE /api/account` (nosso).
 ---
+
+## 2026-06-11 - US-016
+- Habilitado o item "Conta" e confirmado o fluxo de logout no `NavUser`.
+- Files changed:
+  - `src/components/nav-user.tsx` — removido `disabled` do `DropdownMenuItem` "Conta" e adicionado `onSelect={handleAccount}` que chama `navigate("/conta")`. O handler de logout (`handleSignOut` -> `signOut.mutate()` + `navigate("/login")`) já satisfazia AC#1 (`useSignOut` invalida `SESSION_QUERY_KEY` via React Query); apenas verificado.
+  - `src/components/nav-user.test.tsx` — novo teste cobrindo a navegação para `/conta` (não disabled + clique resulta em conta page). Rota `/conta` adicionada ao MemoryRouter de teste como `<div>conta page</div>`.
+- O destino `/conta` ainda não existe nas rotas (`src/app/routes.tsx`) — será adicionado em US-017. Entre as duas iterações o item navegará para o `NotFoundPage`. Isso é esperado para Ralph progressivo e está dentro do escopo do AC ("navega para `/conta`").
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src/components/nav-user.{tsx,test.tsx}` exit 0; `vitest run` -> 86 test files, 826 testes (6 do nav-user.test.tsx), todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (abrir dropdown, clicar Conta -> deve abrir /conta; clicar Sair -> deve invalidar sessão e voltar para /login).
+- **Learnings for future iterations:**
+  - `useSignOut` em `src/lib/queries/session.ts` já chama `queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY })` no `onSuccess`. Não é preciso invalidar manualmente no `handleSignOut` da `NavUser`; basta passar `onSuccess: () => navigate("/login")` na `mutate()`.
+  - O mock canônico de Radix DropdownMenu em `nav-user.test.tsx` substitui `DropdownMenuItem` por um `<button role="menuitem">` que **chama `onSelect`** no `onClick`. Logo, para wirar um novo item de menu basta passar `onSelect={...}` na produção — o mesmo path funciona em prod (Radix) e em jsdom (mock).
+  - Para testar navegação por menu (sem MemoryRouter aninhado), registre uma rota de destino simples (`<Route path="/conta" element={<div>conta page</div>} />`) no `Routes` do helper de teste; assert via `screen.getByText("conta page")`. Mesmo padrão já usado para `/login`.
+  - O `/conta` propriamente dito chega em US-017 (página `Minha Conta`). Por enquanto a navegação cai no `NotFoundPage` — não há trabalho extra em US-016 para "pré-criar" a rota; mantém o escopo mínimo da história.
+---
