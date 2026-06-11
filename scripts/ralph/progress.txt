@@ -5,7 +5,9 @@ Started: Tue Jun  9 19:30:36 PDT 2026
 ## Codebase Patterns
 - Theme tokens live in `src/index.css` (`:root` light + `.dark`) and are exposed as Tailwind utilities via `@theme` (`--color-*`). Use semantic classes (`bg-background`, `bg-primary`, `text-primary-foreground`, `text-foreground`, `text-muted-foreground`) instead of hex colors so light/dark mode stay consistent. `--primary` ≈ the brand red (#B94F45), `--background` ≈ the brand creme (#F7EFE2).
 - Quality gate: `bun run typecheck`, `bunx eslint <file>` (or `bun run lint`), `bun run test`. tsc emits a harmless `setlocale` warning — exit code is what matters.
+- `bun` may not be available in every sandbox — fall back to `node_modules/.bin/tsc -b --noEmit`, `node_modules/.bin/eslint <files>`, and `node_modules/.bin/vitest run`. Exit code 0 == pass.
 - No browser/MCP tooling available in this environment; UI stories' "Verify in browser" AC must be flagged as needing manual verification.
+- `BrandLogo` (`src/components/brand/brand-logo.tsx`) wraps the wordmark in a `bg-primary` contrast strip — the wordmark SVG is white text, so any caller showing it on a light surface relies on this strip. If you ever need the wordmark *without* the strip (e.g. when it's already on a dark surface), the strip is hideable via `containerClassName="hidden ..."` instead of editing the component (see `app-sidebar.tsx` for the mobile case).
 ---
 
 ## 2026-06-09 - US-001
@@ -30,4 +32,19 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - Os tokens `--foreground`/`--muted-foreground` do tema já têm contraste AA folgado em ambos os modos; não há necessidade de cores especiais para o hero. Use sempre os tokens semânticos.
   - Para auditar contraste sem browser, dá pra converter oklch->sRGB e calcular o ratio WCAG num script bun (ver /tmp durante esta iteração). Útil porque OKLCH L != luminância WCAG.
   - Browser verification não pôde ser feita (sem dev-browser/MCP neste ambiente) — checagem visual manual de light/dark ainda recomendada.
+---
+
+## 2026-06-10 - US-003
+- Adicionada faixa horizontal de contraste atrás da `BrandLogo` (wordmark branco) usando o token `bg-primary` do tema, garantindo legibilidade tanto em light quanto dark mode.
+- Files changed:
+  - `src/components/brand/brand-logo.tsx` — wordmark `<img>` agora é renderizado dentro de um `<span>` com `bg-primary inline-flex items-center justify-center rounded-md px-3 py-2`; nova prop `containerClassName` permite que o caller customize/desligue a faixa sem mexer no componente. Doc-comment explica a motivação (texto branco sobre fundo creme do light mode).
+  - `src/components/brand/brand-logo.test.tsx` — dois novos casos cobrindo (a) a faixa usa `bg-primary` (sem cor hardcoded) e (b) `containerClassName` é mesclado por cima de `bg-primary`.
+  - `src/components/app-sidebar.tsx` — sidebar agora usa `containerClassName="hidden md:inline-flex"` para esconder a faixa em mobile (o `BrandMark` compacto cobre esse caso), evitando faixa vermelha de altura zero no mobile.
+- Locais que automaticamente herdam a faixa via os usos existentes de `<BrandLogo />`: `src/app/auth-layout.tsx`, `src/features/landing/pages/landing-page.tsx`, `src/features/landing/pages/privacidade-page.tsx`. Todos exibem a faixa sobre fundos claros (`bg-background`).
+- Quality checks: typecheck (`tsc -b --noEmit`) exit 0; eslint nos arquivos editados exit 0; vitest local em `brand-logo.test.tsx`, `auth-layout.test.tsx`, `app-sidebar.test.tsx` → 11 testes passam.
+- Browser verification: não há browser MCP neste sandbox — verificação visual manual da faixa em light/dark ainda recomendada (Landing, AuthLayout, Privacidade, Sidebar desktop).
+- **Learnings for future iterations:**
+  - O wordmark `/brand/logo-nome.svg` é texto branco — qualquer surface clara precisa de uma faixa de contraste. Centralizar isso no próprio `BrandLogo` (em vez de cada caller) é o caminho: novos callers herdam o contraste correto de graça.
+  - Quando um caller precisa esconder a faixa (ex.: o BrandMark compacto já cobrir mobile), use `containerClassName="hidden ..."` em vez de re-introduzir uma prop "noStrip" ou copiar o `<img>` solto.
+  - Para visual regressions futuras na marca, os 4 testes em `brand-logo.test.tsx` já cobrem: src/alt do `<img>`, sizing via `className`, presença de `bg-primary` na faixa e merge de `containerClassName`.
 ---

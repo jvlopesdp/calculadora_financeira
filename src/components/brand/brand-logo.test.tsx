@@ -18,4 +18,20 @@ describe("BrandLogo", () => {
       "w-auto",
     );
   });
+
+  it("renders the wordmark over a themed contrast strip (never on white)", () => {
+    render(<BrandLogo />);
+    const strip = screen.getByAltText("Calculadora Financeira.app")
+      .parentElement;
+    expect(strip).not.toBeNull();
+    // Uses the theme token (bg-primary) so light/dark stay legible — no hardcoded color.
+    expect(strip).toHaveClass("bg-primary");
+  });
+
+  it("merges an optional containerClassName onto the strip", () => {
+    render(<BrandLogo containerClassName="px-6" />);
+    const strip = screen.getByAltText("Calculadora Financeira.app")
+      .parentElement;
+    expect(strip).toHaveClass("bg-primary", "px-6");
+  });
 });
