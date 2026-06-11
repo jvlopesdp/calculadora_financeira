@@ -21,14 +21,20 @@ vi.mock("react-router-dom", async () => {
 
 const useTrackerPlanMock = vi.fn();
 const deleteMutateAsync = vi.fn();
+const upsertEntryMutateAsync = vi.fn();
 vi.mock("@/lib/queries/tracker-plans", () => ({
   useTrackerPlan: () => useTrackerPlanMock(),
   useDeleteTrackerPlan: () => ({
     mutateAsync: deleteMutateAsync,
     isPending: false,
   }),
-  // The spreadsheet (rendered by the page) uses these entry mutations.
-  useUpsertTrackerEntry: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // The spreadsheet and the what-if dialog (both rendered by the page) share
+  // the same entry mutations — keep a stable mock so the page-level tests can
+  // assert the unified resource is hit on "Aplicar este lançamento".
+  useUpsertTrackerEntry: () => ({
+    mutateAsync: upsertEntryMutateAsync,
+    isPending: false,
+  }),
   useDeleteTrackerEntry: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
@@ -37,6 +43,14 @@ vi.mock("@/lib/queries/tracker-plans", () => ({
 vi.mock("@/features/acompanhamento/components/tracker-curves-chart", () => ({
   TrackerCurvesChart: () => <div data-testid="tracker-curves-chart" />,
 }));
+
+// The what-if dialog and the spreadsheet both render Radix Select, which
+// depends on portals/pointer-capture APIs jsdom doesn't ship — swap for the
+// project's standard native-<select> mock.
+vi.mock("@/components/ui/select", async () => {
+  const mod = await import("@/tests/select-mock");
+  return mod.selectMock;
+});
 
 // Passthrough Dialog so the confirmation content renders when `open` is true,
 // avoiding the Radix portal dance in jsdom.
@@ -118,6 +132,7 @@ describe("AcompanhamentoDetailPage", () => {
   beforeEach(() => {
     navigateMock.mockReset();
     deleteMutateAsync.mockReset();
+    upsertEntryMutateAsync.mockReset();
     useTrackerPlanMock.mockReset();
   });
 
@@ -229,6 +244,69 @@ describe("AcompanhamentoDetailPage", () => {
     expect(
       screen.getByRole("button", { name: "Editar plano" }),
     ).toBeDisabled();
+  });
+
+  // US-014: the "Simular antecipação" button on the new tab opens the
+  // non-persistent what-if simulation dialog. The simulation runs entirely in
+  // memory until the user clicks "Aplicar este lançamento", which then creates
+  // the real entry via the unified resource (`useUpsertTrackerEntry` →
+  // `POST /api/tracker/plans/:id/entries`).
+  it("opens the what-if simulation dialog from 'Simular antecipação' without persisting", () => {
+    setDetail(makePlan(), []);
+    renderPage();
+
+    expect(
+      screen.queryByRole("heading", { name: "Simular antecipação" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simular antecipação" }),
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog).getByRole("heading", { name: "Simular antecipação" }),
+    ).toBeInTheDocument();
+    // Just opening the dialog must not persist anything.
+    expect(upsertEntryMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("creates the real entry via the unified resource when the simulation is applied", async () => {
+    upsertEntryMutateAsync.mockResolvedValue({});
+    setDetail(makePlan(), []);
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simular antecipação" }),
+    );
+
+    const dialog = screen.getByRole("dialog");
+    // Override the suggested installment with a big anticipation so the
+    // simulation has an effect to show.
+    fireEvent.change(within(dialog).getByLabelText("Valor"), {
+      target: { value: "60000" },
+    });
+    // The result preview is purely client-side — still no API call yet.
+    expect(
+      within(dialog).getByTestId("tracker-what-if-result"),
+    ).toBeInTheDocument();
+    expect(upsertEntryMutateAsync).not.toHaveBeenCalled();
+
+    // Confirm: the page's wired-up mutation creates the entry.
+    await act(async () => {
+      fireEvent.click(
+        within(dialog).getByRole("button", {
+          name: "Aplicar este lançamento",
+        }),
+      );
+    });
+
+    expect(upsertEntryMutateAsync).toHaveBeenCalledWith({
+      month_index: 1,
+      paid_amount: 60000,
+      paid_at: "2025-01-01",
+      apply_mode: "reduce_term",
+    });
   });
 
   it("deletes the plan and navigates back after confirmation", async () => {

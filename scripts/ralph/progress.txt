@@ -269,3 +269,18 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - O endpoint canônico para upsert continua sendo `POST /api/tracker/plans/:planId/entries` (não `PUT`, não `/upsert`). Para o `getTrackerPlan(id)`, o GET é `/api/tracker/plans/:id`. Útil pra escrever stubs de fetch precisos.
   - `fetchSpy.mock.calls` é tipado como `[input, init?]`; o `init?.method` cai como `string | undefined`. Para encontrar a chamada POST especificamente, filtre por `(init as RequestInit | undefined)?.method === "POST"`.
 ---
+
+## 2026-06-10 - US-014
+- Confirmado e travado por testes o fluxo "Simular antecipação" na aba "Meus Financiamentos" (`/meus-financiamentos/:id`): a página já montava `TrackerWhatIfDialog` (do botão "Simular antecipação"), com simulação 100% em memória via `simulateWhatIf` (sem chamar a API até o usuário confirmar) e apply via `useUpsertTrackerEntry` (POST `/api/tracker/plans/:id/entries` — recurso unificado).
+- Files changed:
+  - `src/features/acompanhamento/pages/acompanhamento-detail-page.test.tsx` — refatorei o mock de `@/lib/queries/tracker-plans` para expor um `upsertEntryMutateAsync` estável (antes era `vi.fn()` recriado por chamada), adicionei o mock de Select (necessário porque o what-if dialog renderiza Radix Select para Mês e Modo), e cobri o US-014 com dois testes novos:
+    - "opens the what-if simulation dialog from 'Simular antecipação' without persisting" — clicar no botão abre o dialog (heading "Simular antecipação" aparece) e nenhuma chamada de mutação é disparada.
+    - "creates the real entry via the unified resource when the simulation is applied" — preenche o `Valor`, confere que o preview (`tracker-what-if-result`) renderiza sem call de API, clica "Aplicar este lançamento" e verifica `upsertEntryMutateAsync` chamado com o payload do recurso unificado.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src` exit 0 (somente warnings react-refresh pré-existentes em `site-header.tsx` e `select-mock.tsx`); `vitest run` (suite completa) → 85 test files, 803 testes, todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (abrir `/meus-financiamentos/:id`, clicar "Simular antecipação", confirmar que o preview reativo aparece, e que "Aplicar este lançamento" cria a entry e recalcula KPIs/gráfico).
+- **Learnings for future iterations:**
+  - Quando uma page test precisa interagir com um dialog que abre um `Select` Radix (mês/modo no `tracker-what-if-dialog`, por exemplo), adicione o mesmo mock de `@/components/ui/select` que os outros testes usam (`vi.mock("@/components/ui/select", async () => (await import("@/tests/select-mock")).selectMock)`). Sem isso o Radix Select trava no jsdom por pointer-capture/portal, e o teste falha já no render do dialog.
+  - Para asserções de wiring page → dialog (botão abre dialog, dialog dispara mutation correta), prefira capturar a mutation com um `vi.fn()` *estável* no `vi.mock` no topo do arquivo (igual ao `deleteMutateAsync`), em vez de `vi.fn()` recriado por chamada de hook — caso contrário cada `useMutation()` retorna um mock diferente e o `toHaveBeenCalled` falha.
+  - A regra de "scope ao dialog" é importante quando o conteúdo já existe em outros lugares da página: o dialog tem um input `Valor` mas o spreadsheet tem `Valor pago no mês N` — `within(dialog).getByLabelText("Valor")` evita ambiguidade com a tabela.
+  - O `simulate-next-payment-card` mencionado no AC do US-014 é do recurso *legado* `historico` (não foi reutilizado em "Meus Financiamentos"). A simulação what-if da nova aba é coberta inteiramente pelo `tracker-what-if-dialog`. Não foi necessário trazer `simulate-next-payment-card` para a página de detalhes.
+---
