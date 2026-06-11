@@ -48,9 +48,12 @@ describe("getPageTitle", () => {
     ["/", "Financiamento"],
     ["/financiamento", "Financiamento"],
     ["/financiamento/qualquer-coisa", "Financiamento"],
-    ["/historico", "Histórico"],
-    ["/historico/abc", "Histórico"],
-    ["/acompanhamento", "Acompanhamento"],
+    ["/meus-financiamentos", "Meus Financiamentos"],
+    ["/meus-financiamentos/abc", "Meus Financiamentos"],
+    ["/historico", "Meus Financiamentos"],
+    ["/historico/abc", "Meus Financiamentos"],
+    ["/acompanhamento", "Meus Financiamentos"],
+    ["/acompanhamento/novo", "Meus Financiamentos"],
     ["/alugar-x-financiar", "Alugar x Financiar"],
     ["/rota-desconhecida", "Calculadora Financeira"],
   ])("maps %s to %s", (path, expected) => {
@@ -70,10 +73,17 @@ describe("SiteHeader", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the Histórico title on /historico", () => {
+  it("renders the Meus Financiamentos title on /meus-financiamentos", () => {
+    renderHeader("/meus-financiamentos");
+    expect(
+      screen.getByRole("heading", { name: "Meus Financiamentos" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the Meus Financiamentos title on the legacy /historico path", () => {
     renderHeader("/historico");
     expect(
-      screen.getByRole("heading", { name: "Histórico" }),
+      screen.getByRole("heading", { name: "Meus Financiamentos" }),
     ).toBeInTheDocument();
   });
 

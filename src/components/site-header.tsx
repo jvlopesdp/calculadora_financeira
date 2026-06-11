@@ -9,11 +9,12 @@ export function getPageTitle(pathname: string): string {
   if (pathname === "/" || pathname.startsWith("/financiamento")) {
     return "Financiamento";
   }
-  if (pathname.startsWith("/historico")) {
-    return "Histórico";
-  }
-  if (pathname.startsWith("/acompanhamento")) {
-    return "Acompanhamento";
+  if (
+    pathname.startsWith("/meus-financiamentos") ||
+    pathname.startsWith("/historico") ||
+    pathname.startsWith("/acompanhamento")
+  ) {
+    return "Meus Financiamentos";
   }
   if (pathname.startsWith("/alugar-x-financiar")) {
     return "Alugar x Financiar";

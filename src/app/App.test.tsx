@@ -155,9 +155,9 @@ describe("AppRoutes", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows auth modal for unauthenticated /historico without redirecting", () => {
+  it("shows auth modal for unauthenticated /meus-financiamentos", () => {
     setSession({ data: null, isPending: false });
-    renderAt("/historico");
+    renderAt("/meus-financiamentos");
     expect(
       screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
     ).toBeInTheDocument();
@@ -166,13 +166,13 @@ describe("AppRoutes", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a loading state on /historico while session is pending", () => {
+  it("shows a loading state on /meus-financiamentos while session is pending", () => {
     setSession({ data: null, isPending: true });
-    renderAt("/historico");
+    renderAt("/meus-financiamentos");
     expect(screen.getByRole("status")).toHaveTextContent(/carregando/i);
   });
 
-  it("renders /historico content when authenticated", () => {
+  it("renders /meus-financiamentos content when authenticated", () => {
     setSession({
       data: {
         user: {
@@ -196,9 +196,28 @@ describe("AppRoutes", () => {
       },
       isPending: false,
     });
+    renderAt("/meus-financiamentos");
+    expect(
+      screen.getByRole("heading", {
+        level: 3,
+        name: /^seus planos de acompanhamento$/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("redirects legacy /historico to /meus-financiamentos (auth modal still appears)", () => {
+    setSession({ data: null, isPending: false });
     renderAt("/historico");
     expect(
-      screen.getByRole("heading", { level: 3, name: /^seus financiamentos$/i }),
+      screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("redirects legacy /acompanhamento to /meus-financiamentos (auth modal still appears)", () => {
+    setSession({ data: null, isPending: false });
+    renderAt("/acompanhamento");
+    expect(
+      screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
     ).toBeInTheDocument();
   });
 
