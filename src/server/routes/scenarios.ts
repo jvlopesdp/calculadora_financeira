@@ -1,3 +1,11 @@
+/**
+ * Legacy shim — operates on the deprecated `financing_scenarios` table
+ * (kept around for rollback after US-006 migrated the data into the
+ * canonical `tracker_plans` model). The unified "Meus Financiamentos"
+ * resource lives in `tracker-plans.ts` (US-007); these routes only exist
+ * to keep the old Histórico pages working during the transition and will
+ * be removed in US-020.
+ */
 import { Hono } from "hono";
 import { z } from "zod";
 

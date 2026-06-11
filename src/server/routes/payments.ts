@@ -1,3 +1,11 @@
+/**
+ * Legacy shim — operates on the deprecated `payment_history` table (paired
+ * with the deprecated `financing_scenarios`; kept around for rollback after
+ * the US-006 unification). The canonical "Meus Financiamentos" payments
+ * live in `tracker-entries.ts` under `/api/tracker/plans/:planId/entries`.
+ * These routes only exist so the old Histórico pages keep working during
+ * the transition and will be removed in US-020.
+ */
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 

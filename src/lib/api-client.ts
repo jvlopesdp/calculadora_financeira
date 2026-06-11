@@ -3,8 +3,25 @@
  * require auth rely on the Better Auth session cookie (sent automatically by
  * `credentials: "same-origin"`). Non-2xx responses throw an `ApiError` so
  * callers can `try/catch` without re-reading `res.ok`.
+ *
+ * Resource layout (post US-007):
+ *   - **Unified "Meus Financiamentos"** resource — `tracker_plans` +
+ *     `tracker_entries`, served under `/api/tracker/plans/*`. Use the
+ *     `*TrackerPlan*` / `*TrackerEntry*` functions below; everything new
+ *     (US-008+) goes through these.
+ *   - **Legacy shims** — `/api/scenarios/*` + `/api/scenarios/:id/payments/*`
+ *     still operate on the deprecated `financing_scenarios` / `payment_history`
+ *     tables and remain wired so the old Histórico feature keeps working
+ *     during the transition. The `*Scenario*` / `*Payment*` functions below
+ *     are kept as shims and will be removed in US-020.
  */
 import type { AuthSession, AuthUser } from "./auth-client";
+
+// ---------------------------------------------------------------------------
+// Legacy shims: scenarios + payments (deprecated, see header). These continue
+// to back the existing Histórico pages until the cutover to "Meus
+// Financiamentos" is complete.
+// ---------------------------------------------------------------------------
 
 export interface ScenarioApi {
   id: string;
@@ -231,6 +248,13 @@ export async function deletePayment(
   );
   return body.payment;
 }
+
+// ---------------------------------------------------------------------------
+// Unified "Meus Financiamentos" resource (canonical, US-007). Backed by
+// `tracker_plans` + `tracker_entries` and served under `/api/tracker/plans/*`.
+// All new feature work targets this surface; the legacy shims above will be
+// dropped in US-020 once the cutover is complete.
+// ---------------------------------------------------------------------------
 
 export interface CreateTrackerPlanInput {
   name: string;
