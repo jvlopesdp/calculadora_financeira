@@ -389,3 +389,26 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - `revokeOtherSessions: true` no `changePassword` faz o backend deletar TODAS as sessões do user e criar uma nova só para a aba atual (o cookie é re-emitido via `setSessionCookie`). Bom UX e bom security; sempre passar `true` na troca de senha.
   - O zod superRefine que compara `currentPassword === newPassword` deve checar os dois `length > 0` antes — senão, no primeiro render com ambos vazios, o issue dispara "" === "" e mostra "A nova senha deve ser diferente da atual." na hora errada.
 ---
+
+## 2026-06-11 - US-019
+- Adicionada secao "Excluir conta" em `/conta` com Card de zona destrutiva (border `destructive/40`, aviso de irreversibilidade) e botão "Excluir minha conta" que abre Dialog shadcn de confirmacao com reautenticacao por senha. Confirmacao chama `DELETE /api/account` (Better Auth `deleteUser` -> hard delete + cascade nas tabelas filhas, ver US-015), invalida `["account"]` e `["session"]` no React Query e navega para `/login` via `useNavigate({ replace: true })`. Cancelar/Esc bloqueado enquanto a mutation está pendente.
+- Erros conhecidos do servidor traduzidos para pt-BR dentro do dialog (alert role="alert" no `delete-account-error`): `INVALID_PASSWORD` -> "Senha incorreta. Verifique e tente novamente.", `CREDENTIAL_ACCOUNT_NOT_FOUND` -> orientação para usar o provedor original, 429 -> rate limit. Validação client-side via novo zod schema `delete-account.ts` (`password.min(1)`).
+- Wiring atrás do botão: novo `deleteAccount({ password })` em `src/lib/api-client.ts` (DELETE /api/account com body JSON `{password}`); novo hook `useDeleteAccount()` em `src/lib/queries/account.ts` (mutation que no `onSuccess` zera `ACCOUNT_QUERY_KEY` e invalida `SESSION_QUERY_KEY` — esse último faz `NavUser`/`useSession` reverter para anônimo no próximo render).
+- Files changed:
+  - `src/lib/api-client.ts` (novo `DeleteAccountInput` + `deleteAccount`)
+  - `src/lib/queries/account.ts` (novo `useDeleteAccount`)
+  - `src/lib/queries/account.test.tsx` (1 novo `describe` — `useDeleteAccount` chama o api-client, zera o cache do account e invalida a sessão)
+  - `src/features/account/schemas/delete-account.ts` (novo zod)
+  - `src/features/account/pages/account-page.tsx` (Card destrutivo + Dialog + form de reauth + `translateDeleteError`)
+  - `src/features/account/pages/account-page.test.tsx` (6 novos testes — render do card, abertura do dialog com input de senha, bloqueio com senha vazia, sucesso (assert mutation payload + `navigate("/login", {replace:true})`), erro INVALID_PASSWORD em pt-BR dentro do dialog, botão "Excluindo…" quando pending. Adicionado `vi.mock("react-router-dom", ...)` para `useNavigate` e mock passthrough de `@/components/ui/dialog` para Radix portal/pointer-capture)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos 6 arquivos editados exit 0; `vitest run` (suite completa) → 88 test files, 852 testes (+7 vs US-018), todos passam; `vite build` exit 0.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (em `/conta`: clicar "Excluir minha conta" → ver dialog com input de senha; senha errada → ver "Senha incorreta" dentro do dialog, sessão intacta; senha correta → conta sumir do banco, cookie zerado, redirect imediato para `/login`).
+- **Learnings for future iterations:**
+  - `DELETE /api/account` (Better Auth `deleteUser`) já apaga o cookie de sessão server-side (resposta seta `Set-Cookie` com expira/maxAge=0). Mesmo assim a UI precisa invalidar `SESSION_QUERY_KEY` no `onSuccess` da mutation — senão o `useSession()` continua devolvendo o user em memória até o próximo refetch (o `setQueryData(["account"], null)` SOZINHO não cobre isso). Padrão: limpar a query do recurso direto + invalidar `SESSION_QUERY_KEY`.
+  - Para navegar logo após uma mutation destrutiva, use `navigate("/login", { replace: true })` (não acumula histórico — clicar voltar não tenta restaurar `/conta` numa sessão zerada). Mesmo padrão do logout em `nav-user.tsx`.
+  - Mockar `@/components/ui/dialog` em testes de page que abrem dialog: além de passthrough para Header/Footer/Title, a `DialogContent` precisa repassar `data-testid` e demais props para a div interna — sem isso, `getByTestId("delete-account-dialog")` falha porque o testId fica preso num passthrough vazio. Truque: `DialogContent: ({children, ...rest}) => <div {...rest}>{children}</div>`.
+  - `react-hook-form` + zod com `mode: "onBlur"` valida o campo só no submit (ou no blur). No teste de "campo vazio bloqueia submit", basta clicar no botão de confirm — o `handleSubmit` chama `trigger()` internamente e a mensagem da regra `min(1)` aparece via `FormMessage`. Não precisa simular blur explícito.
+  - O guard `if (!open && deleteSubmitting) return;` em `handleDeleteOpenChange` evita que o usuário feche o dialog (clicando overlay/Esc/Cancelar) DURANTE o delete em flight — sem isso, o redirect tenta navegar a partir de uma página já desmontada e o React loga warning. Padrão geral para dialogs com mutations destrutivas.
+  - O `setQueryData(ACCOUNT_QUERY_KEY, null)` no `onSuccess` do `useDeleteAccount` faz o `useAccount()` mostrar `data: null, isPending: false` imediatamente — útil se o usuário voltar para `/conta` antes do redirect (cai no error state, mas sem expor dados de conta apagada).
+---

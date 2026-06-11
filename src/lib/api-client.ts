@@ -375,6 +375,17 @@ export async function updateAccount(
   });
 }
 
+export interface DeleteAccountInput {
+  password: string;
+}
+
+export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
+  await jsonFetch<{ success: true }>("/api/account", {
+    method: "DELETE",
+    body: JSON.stringify(input),
+  });
+}
+
 export interface SessionResponse {
   user: AuthUser;
   session: AuthSession;

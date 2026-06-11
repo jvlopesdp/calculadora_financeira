@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -11,6 +12,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Form,
   FormControl,
@@ -29,8 +39,16 @@ import {
   changePasswordSchema,
   type ChangePasswordFormValues,
 } from "@/features/account/schemas/change-password";
+import {
+  deleteAccountSchema,
+  type DeleteAccountFormValues,
+} from "@/features/account/schemas/delete-account";
 import { ApiError } from "@/lib/api-client";
-import { useAccount, useUpdateAccount } from "@/lib/queries/account";
+import {
+  useAccount,
+  useDeleteAccount,
+  useUpdateAccount,
+} from "@/lib/queries/account";
 import { authClient } from "@/lib/auth-client";
 
 const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
@@ -95,9 +113,34 @@ function translateChangePasswordError(
   return "Não foi possível trocar a senha. Tente novamente.";
 }
 
+function translateDeleteError(error: unknown): string {
+  if (error instanceof ApiError) {
+    const body = (error.body ?? {}) as ApiErrorBody;
+    const code = typeof body.error === "string" ? body.error : "";
+    if (code === "INVALID_PASSWORD") {
+      return "Senha incorreta. Verifique e tente novamente.";
+    }
+    if (code === "CREDENTIAL_ACCOUNT_NOT_FOUND") {
+      return "Esta conta não usa senha. Use o provedor com o qual entrou para confirmar.";
+    }
+    if (error.status === 429) {
+      return "Muitas tentativas. Aguarde alguns instantes antes de tentar novamente.";
+    }
+    if (typeof body.message === "string" && body.message.length > 0) {
+      return body.message;
+    }
+  }
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return "Não foi possível excluir a conta. Tente novamente.";
+}
+
 export function AccountPage() {
+  const navigate = useNavigate();
   const accountQuery = useAccount();
   const updateMutation = useUpdateAccount();
+  const deleteMutation = useDeleteAccount();
 
   const account = accountQuery.data;
 
@@ -182,6 +225,43 @@ export function AccountPage() {
     { kind: "success"; message: string } | { kind: "error"; message: string } | null
   >(null);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+
+  const deleteForm = useForm<DeleteAccountFormValues>({
+    resolver: zodResolver(deleteAccountSchema),
+    mode: "onBlur",
+    defaultValues: { password: "" },
+  });
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteSubmitting = deleteMutation.isPending;
+
+  function openDeleteDialog() {
+    deleteForm.reset({ password: "" });
+    setDeleteError(null);
+    setDeleteOpen(true);
+  }
+
+  function handleDeleteOpenChange(open: boolean) {
+    if (!open && deleteSubmitting) return;
+    setDeleteOpen(open);
+    if (!open) {
+      setDeleteError(null);
+      deleteForm.reset({ password: "" });
+    }
+  }
+
+  const onDeleteSubmit = deleteForm.handleSubmit(async (values) => {
+    setDeleteError(null);
+    try {
+      await deleteMutation.mutateAsync({ password: values.password });
+      setDeleteOpen(false);
+      deleteForm.reset({ password: "" });
+      navigate("/login", { replace: true });
+    } catch (err) {
+      setDeleteError(translateDeleteError(err));
+    }
+  });
 
   const onPasswordSubmit = passwordForm.handleSubmit(async (values) => {
     setPasswordFeedback(null);
@@ -460,6 +540,100 @@ export function AccountPage() {
           </Form>
         </CardContent>
       </Card>
+
+      <Card
+        className="border-destructive/40"
+        data-testid="delete-account-card"
+      >
+        <CardHeader>
+          <CardTitle>Excluir conta</CardTitle>
+          <CardDescription>
+            Esta ação é permanente: sua conta e todos os seus dados
+            (financiamentos, lançamentos e sessões) serão removidos
+            definitivamente. Não há como desfazer.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={openDeleteDialog}
+            data-testid="delete-account-trigger"
+          >
+            Excluir minha conta
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Dialog open={deleteOpen} onOpenChange={handleDeleteOpenChange}>
+        <DialogContent data-testid="delete-account-dialog">
+          <DialogHeader>
+            <DialogTitle>Confirmar exclusão de conta</DialogTitle>
+            <DialogDescription>
+              Para confirmar, digite sua senha atual. Sua conta e todos os
+              dados associados serão excluídos imediatamente e não poderão ser
+              recuperados.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...deleteForm}>
+            <form
+              className="space-y-4"
+              onSubmit={onDeleteSubmit}
+              noValidate
+            >
+              <FormField
+                control={deleteForm.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Senha atual</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder="Sua senha atual"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {deleteError ? (
+                <p
+                  role="alert"
+                  className="text-destructive text-sm font-medium"
+                  data-testid="delete-account-error"
+                >
+                  {deleteError}
+                </p>
+              ) : null}
+
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={deleteSubmitting}
+                  >
+                    Cancelar
+                  </Button>
+                </DialogClose>
+                <Button
+                  type="submit"
+                  variant="destructive"
+                  disabled={deleteSubmitting}
+                  aria-disabled={deleteSubmitting}
+                  data-testid="delete-account-confirm"
+                >
+                  {deleteSubmitting ? "Excluindo…" : "Excluir minha conta"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -3,7 +3,12 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useAccount, useUpdateAccount } from "@/lib/queries/account";
+import {
+  ACCOUNT_QUERY_KEY,
+  useAccount,
+  useDeleteAccount,
+  useUpdateAccount,
+} from "@/lib/queries/account";
 import { SESSION_QUERY_KEY } from "@/lib/query-client";
 import type { AccountApi, UpdateAccountResponse } from "@/lib/api-client";
 
@@ -15,6 +20,7 @@ vi.mock("@/lib/api-client", async () => {
     ...actual,
     getAccount: vi.fn(),
     updateAccount: vi.fn(),
+    deleteAccount: vi.fn(),
   };
 });
 
@@ -89,6 +95,40 @@ describe("useUpdateAccount", () => {
     await waitFor(() => {
       const next = queryClient.getQueryState(SESSION_QUERY_KEY);
       expect(next?.isInvalidated || (next?.dataUpdatedAt ?? 0) >= initialUpdatedAt).toBe(true);
+    });
+  });
+});
+
+describe("useDeleteAccount", () => {
+  beforeEach(() => {
+    vi.mocked(apiClient.deleteAccount).mockReset();
+  });
+
+  it("calls deleteAccount, clears the account cache and invalidates the session", async () => {
+    vi.mocked(apiClient.deleteAccount).mockResolvedValue(undefined);
+    const { queryClient, wrapper } = makeWrapper();
+
+    queryClient.setQueryData(ACCOUNT_QUERY_KEY, makeAccount());
+    queryClient.setQueryData(SESSION_QUERY_KEY, {
+      user: { id: "u_1" },
+      session: { id: "s_1" },
+    });
+    const initialSession = queryClient.getQueryState(SESSION_QUERY_KEY);
+    const initialUpdatedAt = initialSession?.dataUpdatedAt ?? 0;
+
+    const { result } = renderHook(() => useDeleteAccount(), { wrapper });
+    await result.current.mutateAsync({ password: "correct-horse" });
+
+    expect(vi.mocked(apiClient.deleteAccount)).toHaveBeenCalledWith({
+      password: "correct-horse",
+    });
+    expect(queryClient.getQueryData(ACCOUNT_QUERY_KEY)).toBeNull();
+
+    await waitFor(() => {
+      const next = queryClient.getQueryState(SESSION_QUERY_KEY);
+      expect(
+        next?.isInvalidated || (next?.dataUpdatedAt ?? 0) >= initialUpdatedAt,
+      ).toBe(true);
     });
   });
 });

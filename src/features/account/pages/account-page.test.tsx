@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import { AccountPage } from "@/features/account/pages/account-page";
@@ -7,11 +8,15 @@ import { ApiError, type AccountApi } from "@/lib/api-client";
 const useAccountMock = vi.fn();
 const updateMutateAsyncMock = vi.fn();
 const useUpdateAccountMock = vi.fn();
+const deleteMutateAsyncMock = vi.fn();
+const useDeleteAccountMock = vi.fn();
 const changePasswordMock = vi.fn();
+const navigateMock = vi.fn();
 
 vi.mock("@/lib/queries/account", () => ({
   useAccount: () => useAccountMock(),
   useUpdateAccount: () => useUpdateAccountMock(),
+  useDeleteAccount: () => useDeleteAccountMock(),
 }));
 
 vi.mock("@/lib/auth-client", () => ({
@@ -19,6 +24,50 @@ vi.mock("@/lib/auth-client", () => ({
     changePassword: (...args: unknown[]) => changePasswordMock(...args),
   },
 }));
+
+vi.mock("react-router-dom", async () => {
+  const actual =
+    await vi.importActual<typeof import("react-router-dom")>(
+      "react-router-dom",
+    );
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
+
+// Passthrough Dialog mock: the Radix Dialog primitive uses portals + the
+// pointer-capture API that jsdom doesn't ship. Render the content inline when
+// `open` is true so fireEvent can click the confirm button directly.
+vi.mock("@/components/ui/dialog", () => {
+  const Passthrough = ({ children }: { children?: ReactNode }) => (
+    <>{children}</>
+  );
+  return {
+    Dialog: ({
+      open,
+      children,
+    }: {
+      open?: boolean;
+      children?: ReactNode;
+    }) => (open ? <div role="dialog">{children}</div> : null),
+    DialogContent: ({
+      children,
+      ...rest
+    }: {
+      children?: ReactNode;
+      [key: string]: unknown;
+    }) => <div {...rest}>{children}</div>,
+    DialogHeader: Passthrough,
+    DialogTitle: ({ children }: { children?: ReactNode }) => (
+      <h3>{children}</h3>
+    ),
+    DialogDescription: Passthrough,
+    DialogFooter: Passthrough,
+    DialogClose: Passthrough,
+    DialogTrigger: Passthrough,
+  };
+});
 
 function makeAccount(overrides: Partial<AccountApi> = {}): AccountApi {
   return {
@@ -50,6 +99,13 @@ function setMutation(state: { isPending?: boolean } = {}) {
   });
 }
 
+function setDeleteMutation(state: { isPending?: boolean } = {}) {
+  (useDeleteAccountMock as Mock).mockReturnValue({
+    mutateAsync: deleteMutateAsyncMock,
+    isPending: state.isPending ?? false,
+  });
+}
+
 function renderPage() {
   return render(<AccountPage />);
 }
@@ -59,8 +115,12 @@ describe("AccountPage", () => {
     useAccountMock.mockReset();
     updateMutateAsyncMock.mockReset();
     useUpdateAccountMock.mockReset();
+    deleteMutateAsyncMock.mockReset();
+    useDeleteAccountMock.mockReset();
     changePasswordMock.mockReset();
+    navigateMock.mockReset();
     setMutation();
+    setDeleteMutation();
   });
 
   it("shows the loading state while the account query is pending", () => {
@@ -342,6 +402,126 @@ describe("AccountPage", () => {
           /senha atual está incorreta/i,
         );
       });
+    });
+  });
+
+  describe("delete account section", () => {
+    function openDeleteDialog() {
+      fireEvent.click(screen.getByTestId("delete-account-trigger"));
+      return screen.getByRole("dialog");
+    }
+
+    it("renders the danger zone card with an irreversibility warning", () => {
+      setAccount({ data: makeAccount() });
+      renderPage();
+
+      const card = screen.getByTestId("delete-account-card");
+      expect(
+        within(card).getByRole("heading", {
+          name: /excluir conta/i,
+          level: 3,
+        }),
+      ).toBeInTheDocument();
+      expect(card).toHaveTextContent(/permanente/i);
+      expect(card).toHaveTextContent(/não há como desfazer/i);
+      expect(screen.getByTestId("delete-account-trigger")).toBeInTheDocument();
+    });
+
+    it("opens the confirmation dialog and asks for reauthentication password", () => {
+      setAccount({ data: makeAccount() });
+      renderPage();
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      const dialog = openDeleteDialog();
+      expect(
+        within(dialog).getByRole("heading", {
+          name: /confirmar exclusão de conta/i,
+        }),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByLabelText("Senha atual")).toBeInTheDocument();
+      expect(
+        within(dialog).getByTestId("delete-account-confirm"),
+      ).toBeInTheDocument();
+    });
+
+    it("blocks submission with empty password and does not call the mutation", async () => {
+      setAccount({ data: makeAccount() });
+      renderPage();
+
+      const dialog = openDeleteDialog();
+      fireEvent.click(
+        within(dialog).getByTestId("delete-account-confirm"),
+      );
+
+      await waitFor(() => {
+        expect(
+          within(dialog).getByText("Informe sua senha para confirmar."),
+        ).toBeInTheDocument();
+      });
+      expect(deleteMutateAsyncMock).not.toHaveBeenCalled();
+    });
+
+    it("calls DELETE /api/account, ends the session and redirects to /login on success", async () => {
+      setAccount({ data: makeAccount() });
+      deleteMutateAsyncMock.mockResolvedValueOnce(undefined);
+      renderPage();
+
+      const dialog = openDeleteDialog();
+      fireEvent.change(within(dialog).getByLabelText("Senha atual"), {
+        target: { value: "correct-horse" },
+      });
+      fireEvent.click(
+        within(dialog).getByTestId("delete-account-confirm"),
+      );
+
+      await waitFor(() => {
+        expect(deleteMutateAsyncMock).toHaveBeenCalledWith({
+          password: "correct-horse",
+        });
+      });
+      await waitFor(() => {
+        expect(navigateMock).toHaveBeenCalledWith("/login", {
+          replace: true,
+        });
+      });
+    });
+
+    it("translates INVALID_PASSWORD to a clear pt-BR error inside the dialog", async () => {
+      setAccount({ data: makeAccount() });
+      deleteMutateAsyncMock.mockRejectedValueOnce(
+        new ApiError("Request failed: 400 Bad Request", 400, {
+          error: "INVALID_PASSWORD",
+          message: "Invalid password",
+        }),
+      );
+      renderPage();
+
+      const dialog = openDeleteDialog();
+      fireEvent.change(within(dialog).getByLabelText("Senha atual"), {
+        target: { value: "wrong-pwd" },
+      });
+      fireEvent.click(
+        within(dialog).getByTestId("delete-account-confirm"),
+      );
+
+      await waitFor(() => {
+        expect(
+          within(dialog).getByTestId("delete-account-error"),
+        ).toHaveTextContent(/senha incorreta/i);
+      });
+      expect(navigateMock).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("disables the confirm button while the delete is in flight", () => {
+      setAccount({ data: makeAccount() });
+      setDeleteMutation({ isPending: true });
+      renderPage();
+
+      openDeleteDialog();
+      const confirm = screen.getByTestId("delete-account-confirm");
+      expect(confirm).toBeDisabled();
+      expect(confirm).toHaveTextContent(/excluindo/i);
     });
   });
 });

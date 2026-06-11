@@ -7,9 +7,11 @@ import {
 } from "@tanstack/react-query";
 
 import {
+  deleteAccount,
   getAccount,
   updateAccount,
   type AccountApi,
+  type DeleteAccountInput,
   type UpdateAccountInput,
   type UpdateAccountResponse,
 } from "@/lib/api-client";
@@ -34,6 +36,21 @@ export function useUpdateAccount(): UseMutationResult<
     mutationFn: (input: UpdateAccountInput) => updateAccount(input),
     onSuccess: (data) => {
       qc.setQueryData(ACCOUNT_QUERY_KEY, data.account);
+      void qc.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+    },
+  });
+}
+
+export function useDeleteAccount(): UseMutationResult<
+  void,
+  Error,
+  DeleteAccountInput
+> {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: DeleteAccountInput) => deleteAccount(input),
+    onSuccess: () => {
+      qc.setQueryData(ACCOUNT_QUERY_KEY, null);
       void qc.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
     },
   });
