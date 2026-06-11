@@ -185,6 +185,43 @@ describe("AcompanhamentoDetailPage", () => {
     expect(screen.getByTestId("tracker-curves-chart")).toBeInTheDocument();
   });
 
+  // US-013: KPIs and chart recompute the moment the plan detail cache
+  // changes — i.e. a save/edit/delete from `useUpsertTrackerEntry` /
+  // `useDeleteTrackerEntry` updates the cache and the page reflects it
+  // without any reload, because both `curves` and `kpis` are derived via
+  // `useMemo([detail])` / `useMemo([curves])`.
+  it("recomputes KPIs and re-renders the chart when entries change without reloading", () => {
+    setDetail(makePlan(), []);
+    const view = renderPage();
+
+    // Empty state: every KPI is "—" and the chart is on screen.
+    expect(
+      screen.getByTestId("kpi-card-saldo-devedor-value"),
+    ).toHaveTextContent("—");
+    expect(
+      screen.getByTestId("kpi-card-ja-pago-value"),
+    ).toHaveTextContent("—");
+    expect(screen.getByTestId("tracker-curves-chart")).toBeInTheDocument();
+
+    // Cache mutation: entries appear (mirrors what an optimistic upsert does).
+    setDetail(makePlan(), [makeEntry(1), makeEntry(2), makeEntry(3)]);
+    view.rerender(
+      <MemoryRouter>
+        <AcompanhamentoDetailPage />
+      </MemoryRouter>,
+    );
+
+    // Same KPI cards now carry computed values (no "—"), and the chart is
+    // still mounted (it received the recomputed `curves` as a prop).
+    const saldo = screen.getByTestId("kpi-card-saldo-devedor-value");
+    expect(saldo).not.toHaveTextContent("—");
+    expect(saldo).toHaveTextContent("R$");
+    const jaPago = screen.getByTestId("kpi-card-ja-pago-value");
+    expect(jaPago).not.toHaveTextContent("—");
+    expect(jaPago).toHaveTextContent("%");
+    expect(screen.getByTestId("tracker-curves-chart")).toBeInTheDocument();
+  });
+
   it("renders 'Editar plano' as a disabled placeholder", () => {
     setDetail(makePlan(), []);
     renderPage();
