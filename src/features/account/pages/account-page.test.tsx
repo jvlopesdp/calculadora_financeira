@@ -7,10 +7,17 @@ import { ApiError, type AccountApi } from "@/lib/api-client";
 const useAccountMock = vi.fn();
 const updateMutateAsyncMock = vi.fn();
 const useUpdateAccountMock = vi.fn();
+const changePasswordMock = vi.fn();
 
 vi.mock("@/lib/queries/account", () => ({
   useAccount: () => useAccountMock(),
   useUpdateAccount: () => useUpdateAccountMock(),
+}));
+
+vi.mock("@/lib/auth-client", () => ({
+  authClient: {
+    changePassword: (...args: unknown[]) => changePasswordMock(...args),
+  },
 }));
 
 function makeAccount(overrides: Partial<AccountApi> = {}): AccountApi {
@@ -52,6 +59,7 @@ describe("AccountPage", () => {
     useAccountMock.mockReset();
     updateMutateAsyncMock.mockReset();
     useUpdateAccountMock.mockReset();
+    changePasswordMock.mockReset();
     setMutation();
   });
 
@@ -205,5 +213,135 @@ describe("AccountPage", () => {
       expect(screen.getByText("Email inválido.")).toBeInTheDocument();
     });
     expect(updateMutateAsyncMock).not.toHaveBeenCalled();
+  });
+
+  describe("change password section", () => {
+    function fillPasswords(values: {
+      current: string;
+      next: string;
+      confirm: string;
+    }) {
+      fireEvent.change(screen.getByLabelText("Senha atual"), {
+        target: { value: values.current },
+      });
+      fireEvent.change(screen.getByLabelText("Nova senha"), {
+        target: { value: values.next },
+      });
+      fireEvent.change(screen.getByLabelText("Confirme a nova senha"), {
+        target: { value: values.confirm },
+      });
+    }
+
+    it("renders the change password section with the three required fields", () => {
+      setAccount({ data: makeAccount() });
+      renderPage();
+
+      expect(
+        screen.getByRole("heading", { name: /trocar senha/i, level: 3 }),
+      ).toBeInTheDocument();
+      expect(screen.getByLabelText("Senha atual")).toBeInTheDocument();
+      expect(screen.getByLabelText("Nova senha")).toBeInTheDocument();
+      expect(
+        screen.getByLabelText("Confirme a nova senha"),
+      ).toBeInTheDocument();
+    });
+
+    it("blocks submission when the confirmation does not match", async () => {
+      setAccount({ data: makeAccount() });
+      renderPage();
+
+      fillPasswords({
+        current: "currentSecret123",
+        next: "newSecret123!",
+        confirm: "different123!",
+      });
+      fireEvent.click(screen.getByRole("button", { name: /trocar senha/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("As senhas não conferem.")).toBeInTheDocument();
+      });
+      expect(changePasswordMock).not.toHaveBeenCalled();
+    });
+
+    it("blocks submission when the new password is shorter than 8 characters", async () => {
+      setAccount({ data: makeAccount() });
+      renderPage();
+
+      fillPasswords({
+        current: "currentSecret123",
+        next: "short",
+        confirm: "short",
+      });
+      fireEvent.click(screen.getByRole("button", { name: /trocar senha/i }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText("A nova senha deve ter pelo menos 8 caracteres."),
+        ).toBeInTheDocument();
+      });
+      expect(changePasswordMock).not.toHaveBeenCalled();
+    });
+
+    it("calls Better Auth changePassword with revokeOtherSessions and shows success feedback", async () => {
+      setAccount({ data: makeAccount() });
+      changePasswordMock.mockResolvedValueOnce({
+        data: { token: "new-token" },
+        error: null,
+      });
+      renderPage();
+
+      fillPasswords({
+        current: "currentSecret123",
+        next: "brandNewSecret123!",
+        confirm: "brandNewSecret123!",
+      });
+      fireEvent.click(screen.getByRole("button", { name: /trocar senha/i }));
+
+      await waitFor(() => {
+        expect(changePasswordMock).toHaveBeenCalledWith({
+          currentPassword: "currentSecret123",
+          newPassword: "brandNewSecret123!",
+          revokeOtherSessions: true,
+        });
+      });
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("change-password-success"),
+        ).toHaveTextContent(/senha trocada com sucesso/i);
+      });
+
+      expect(
+        (screen.getByLabelText("Senha atual") as HTMLInputElement).value,
+      ).toBe("");
+      expect(
+        (screen.getByLabelText("Nova senha") as HTMLInputElement).value,
+      ).toBe("");
+    });
+
+    it("shows a clear error in pt-BR when the current password is wrong", async () => {
+      setAccount({ data: makeAccount() });
+      changePasswordMock.mockResolvedValueOnce({
+        data: null,
+        error: {
+          code: "INVALID_PASSWORD",
+          message: "Invalid password",
+          status: 400,
+        },
+      });
+      renderPage();
+
+      fillPasswords({
+        current: "wrongPassword!",
+        next: "brandNewSecret123!",
+        confirm: "brandNewSecret123!",
+      });
+      fireEvent.click(screen.getByRole("button", { name: /trocar senha/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("change-password-error")).toHaveTextContent(
+          /senha atual está incorreta/i,
+        );
+      });
+    });
   });
 });

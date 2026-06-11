@@ -25,8 +25,13 @@ import {
   accountProfileSchema,
   type AccountProfileFormValues,
 } from "@/features/account/schemas/account-profile";
+import {
+  changePasswordSchema,
+  type ChangePasswordFormValues,
+} from "@/features/account/schemas/change-password";
 import { ApiError } from "@/lib/api-client";
 import { useAccount, useUpdateAccount } from "@/lib/queries/account";
+import { authClient } from "@/lib/auth-client";
 
 const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
   day: "2-digit",
@@ -57,6 +62,37 @@ function translateUpdateError(error: unknown): string {
     return error.message;
   }
   return "Não foi possível salvar suas alterações. Tente novamente.";
+}
+
+type ChangePasswordErrorBody = {
+  code?: string;
+  message?: string;
+  status?: number;
+};
+
+function translateChangePasswordError(
+  error: ChangePasswordErrorBody | null | undefined,
+): string {
+  const code = typeof error?.code === "string" ? error.code : "";
+  if (code === "INVALID_PASSWORD") {
+    return "A senha atual está incorreta.";
+  }
+  if (code === "PASSWORD_TOO_SHORT") {
+    return "A nova senha deve ter pelo menos 8 caracteres.";
+  }
+  if (code === "PASSWORD_TOO_LONG") {
+    return "A nova senha é muito longa.";
+  }
+  if (code === "CREDENTIAL_ACCOUNT_NOT_FOUND") {
+    return "Esta conta não usa senha. Use o provedor com o qual entrou.";
+  }
+  if (error?.status === 429) {
+    return "Muitas tentativas. Aguarde alguns instantes antes de tentar novamente.";
+  }
+  if (typeof error?.message === "string" && error.message.length > 0) {
+    return error.message;
+  }
+  return "Não foi possível trocar a senha. Tente novamente.";
 }
 
 export function AccountPage() {
@@ -131,6 +167,62 @@ export function AccountPage() {
   const isLoading = accountQuery.isPending;
   const isError = accountQuery.isError;
   const submitting = updateMutation.isPending;
+
+  const passwordForm = useForm<ChangePasswordFormValues>({
+    resolver: zodResolver(changePasswordSchema),
+    mode: "onBlur",
+    defaultValues: {
+      currentPassword: "",
+      newPassword: "",
+      newPasswordConfirmation: "",
+    },
+  });
+
+  const [passwordFeedback, setPasswordFeedback] = useState<
+    { kind: "success"; message: string } | { kind: "error"; message: string } | null
+  >(null);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+
+  const onPasswordSubmit = passwordForm.handleSubmit(async (values) => {
+    setPasswordFeedback(null);
+    setPasswordSubmitting(true);
+    try {
+      const result = await authClient.changePassword({
+        currentPassword: values.currentPassword,
+        newPassword: values.newPassword,
+        revokeOtherSessions: true,
+      });
+      if (result.error) {
+        setPasswordFeedback({
+          kind: "error",
+          message: translateChangePasswordError(
+            result.error as ChangePasswordErrorBody,
+          ),
+        });
+        return;
+      }
+      passwordForm.reset({
+        currentPassword: "",
+        newPassword: "",
+        newPasswordConfirmation: "",
+      });
+      setPasswordFeedback({
+        kind: "success",
+        message:
+          "Senha trocada com sucesso. As demais sessões foram desconectadas.",
+      });
+    } catch (err) {
+      setPasswordFeedback({
+        kind: "error",
+        message:
+          err instanceof Error && err.message.length > 0
+            ? err.message
+            : "Erro de rede. Verifique sua conexão e tente novamente.",
+      });
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  });
 
   return (
     <div className="flex flex-col gap-6" data-testid="account-page">
@@ -261,6 +353,111 @@ export function AccountPage() {
               </form>
             </Form>
           )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="change-password-card">
+        <CardHeader>
+          <CardTitle>Trocar senha</CardTitle>
+          <CardDescription>
+            Use sua senha atual para definir uma nova. As outras sessões serão
+            desconectadas após a troca.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...passwordForm}>
+            <form
+              className="space-y-4"
+              onSubmit={onPasswordSubmit}
+              noValidate
+            >
+              <FormField
+                control={passwordForm.control}
+                name="currentPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Senha atual</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder="Sua senha atual"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={passwordForm.control}
+                name="newPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nova senha</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="Mínimo 8 caracteres"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={passwordForm.control}
+                name="newPasswordConfirmation"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirme a nova senha</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder="Digite a nova senha novamente"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {passwordFeedback?.kind === "success" ? (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="text-sm text-emerald-600 dark:text-emerald-400"
+                  data-testid="change-password-success"
+                >
+                  {passwordFeedback.message}
+                </p>
+              ) : null}
+
+              {passwordFeedback?.kind === "error" ? (
+                <p
+                  role="alert"
+                  className="text-destructive text-sm font-medium"
+                  data-testid="change-password-error"
+                >
+                  {passwordFeedback.message}
+                </p>
+              ) : null}
+
+              <Button
+                type="submit"
+                disabled={passwordSubmitting}
+                aria-disabled={passwordSubmitting}
+              >
+                {passwordSubmitting ? "Salvando…" : "Trocar senha"}
+              </Button>
+            </form>
+          </Form>
         </CardContent>
       </Card>
     </div>
