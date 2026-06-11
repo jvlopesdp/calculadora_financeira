@@ -135,26 +135,26 @@ describe("AcompanhamentoDetailPage", () => {
     expect(toolbar.getByText(/01\/01\/2025/)).toBeInTheDocument();
   });
 
-  it("shows '—' for every KPI when there are no entries", () => {
+  it("shows '—' with the empty-state hint for every KPI when there are no entries", () => {
     setDetail(makePlan(), []);
     renderPage();
 
+    for (const slug of [
+      "ja-pago",
+      "saldo-devedor",
+      "parcelas-restantes",
+      "juros-pagos-ate-agora",
+      "economia-vs-cronograma-original",
+      "prazo-reduzido",
+    ]) {
+      expect(
+        screen.getByTestId(`kpi-card-${slug}-value`),
+      ).toHaveTextContent("—");
+    }
+    // The hint text appears once per placeholder (six cards).
     expect(
-      screen.getByTestId("kpi-card-saldo-atual-value"),
-    ).toHaveTextContent("—");
-    expect(
-      screen.getByTestId("kpi-card-juros-pagos-ate-agora-value"),
-    ).toHaveTextContent("—");
-    expect(
-      screen.getByTestId(
-        "kpi-card-economia-de-juros-vs-normal-realizado-value",
-      ),
-    ).toHaveTextContent("—");
-    expect(
-      screen.getByTestId(
-        "kpi-card-meses-reduzidos-vs-normal-realizado-value",
-      ),
-    ).toHaveTextContent("—");
+      screen.getAllByText(/Registre lançamentos/i),
+    ).toHaveLength(6);
   });
 
   it("computes the KPIs from the curves when entries exist", () => {
@@ -162,15 +162,19 @@ describe("AcompanhamentoDetailPage", () => {
     renderPage();
 
     expect(
-      screen.getByTestId("kpi-card-saldo-atual-value"),
+      screen.getByTestId("kpi-card-saldo-devedor-value"),
     ).toHaveTextContent("R$");
     expect(
       screen.getByTestId("kpi-card-juros-pagos-ate-agora-value"),
     ).toHaveTextContent("R$");
-    // Extra payments cut the term, so months reduced is positive (not "—").
-    const reduced = screen.getByTestId(
-      "kpi-card-meses-reduzidos-vs-normal-realizado-value",
-    );
+    expect(
+      screen.getByTestId("kpi-card-ja-pago-value"),
+    ).toHaveTextContent("%");
+    expect(
+      screen.getByTestId("kpi-card-parcelas-restantes-value"),
+    ).toHaveTextContent(/^\d+$/);
+    // Extra payments cut the term, so prazo reduzido is positive (not "—").
+    const reduced = screen.getByTestId("kpi-card-prazo-reduzido-value");
     expect(reduced).not.toHaveTextContent("—");
     expect(reduced).toHaveTextContent(/m[êe]s/);
   });
