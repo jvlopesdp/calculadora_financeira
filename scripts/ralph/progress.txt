@@ -10,6 +10,8 @@ Started: Tue Jun  9 19:30:36 PDT 2026
 - No browser/MCP tooling available in this environment; UI stories' "Verify in browser" AC must be flagged as needing manual verification.
 - `BrandLogo` (`src/components/brand/brand-logo.tsx`) wraps the wordmark in a `bg-primary` contrast strip — the wordmark SVG is white text, so any caller showing it on a light surface relies on this strip. If you ever need the wordmark *without* the strip (e.g. when it's already on a dark surface), the strip is hideable via `containerClassName="hidden ..."` instead of editing the component (see `app-sidebar.tsx` for the mobile case).
 - **Select (Radix/shadcn)**: `src/components/ui/select.tsx` exports the canonical shadcn surface (`Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`, plus `SelectGroup`/`SelectLabel`/`SelectSeparator`). Controlled via `value` + `onValueChange` (not `onChange`). With `react-hook-form`, wrap with `<Controller>` (or use a `<FormField>`) and pass `field.value`/`field.onChange` — `register("name")` does NOT work because the trigger is a `<button>`, not a `<select>`. The trigger button is what receives `id` for `Label htmlFor`. A test-only mock at `src/tests/select-mock.tsx` (exported as `selectMock`) renders a real native `<select>` so `fireEvent.change(select, { target: { value } })` keeps working — register it via `vi.mock("@/components/ui/select", async () => (await import("@/tests/select-mock")).selectMock)`.
+- **D1 migrations**: live in `migrations/NNNN_*.sql`, applied via `bun run db:migrate:local` (local) / `db:migrate:remote` (prod, run automatically before deploy). Plain SQL; no inline JS. Two important quirks: (a) D1 doesn't ship a portable `POW`/`POWER` — compute compounded values in app code (Decimal.js) before INSERT, not in SQL; (b) for data-migrations across tables, use `INSERT OR IGNORE INTO target (...) SELECT ... FROM source` and watch out for UNIQUE constraints on the target. Sandbox NOTE: Wrangler v4 requires Node 22+, so `db:migrate:local` cannot run here on the default Node 20 — review SQL by hand and document the limitation in the story's progress entry.
+- **Legacy vs canonical schemas** (as of US-006): `tracker_plans` + `tracker_entries` are the *canonical* model for a user's financings ("Meus Financiamentos"). The legacy `financing_scenarios` + `payment_history` tables are *deprecated but still present* (kept for rollback; physical drop scheduled in US-020). PRD wording sometimes calls the legacy payments table `scenario_payments` — the real name is `payment_history` (see `migrations/0002_domain.sql`). The legacy scenarios table has no `modality` column; assume PRICE when migrating.
 ---
 
 ## 2026-06-09 - US-001
@@ -91,3 +93,29 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - Pra auditar "nenhum dropdown nativo restante", os greps que dão certeza são: `<select[\s>]`, `<option`, `appearance-none` e `SelectHTMLAttributes`. Se todos voltarem vazios (exceto o test mock), AC#3 está satisfeita.
   - Combobox-like (`scenario-combobox.tsx`) construído sobre `DropdownMenu` é OK — usa tokens do tema. Não confundir com o "Select" do AC, que é especificamente sobre o componente `@/components/ui/select` e `<select>` nativo.
 ---
+
+## 2026-06-10 - US-006
+- Adicionada migração D1 `migrations/0006_unify_financing_to_tracker.sql` que copia os dados do modelo legado (`financing_scenarios` + `payment_history`) para o modelo canônico (`tracker_plans` + `tracker_entries`), sem dropar as tabelas antigas (rollback seguro / cleanup vai acontecer no US-020).
+- Mapeamento aplicado:
+  - `financing_scenarios.annual_rate_basis_points` -> `tracker_plans.annual_rate_bp` (mesma unidade, sem conversão — preserva basis points).
+  - `name` nullable -> `COALESCE("name", 'Financiamento')` (tracker exige NOT NULL).
+  - `modality` default `'PRICE'` (legado não persistia SAC).
+  - `target_monthly_total_cents` placeholder: `(property_value_cents - down_payment_cents) / term_months`. Evita `POW` por portabilidade D1/SQLite. Usuário ajusta no UI novo.
+  - `created_at` -> `created_at` e `updated_at` (legado não tinha updated_at).
+  - Pagamentos: `amortization_strategy = 'prazo'` -> `apply_mode = 'reduce_term'`; `'parcela'` -> `'reduce_installment'`. `payment_type` ('parcela'/'amortizacao_extra'/'misto') não é mapeado — não tem equivalente no tracker (o tipo é inferido pela diferença vs parcela prevista).
+  - `month_index` derivado de `reference_month` (YYYY-MM) - `start_date` (YYYY-MM-DD) via aritmética `substr`/`cast`: `((ref_year - start_year) * 12 + (ref_month - start_month)) + 1` (1-based; pagamento no mês do start_date == 1).
+  - IDs reutilizados (same uuid), com `INSERT OR IGNORE` para evitar colidir com planos/entries que o usuário já criou no tracker. Duplicatas de payment_history em (scenario, reference_month) ficam preservadas no legado mas só uma entra no tracker (UNIQUE(plan_id, month_index)).
+  - Cenários `archived_at IS NOT NULL` são pulados (arquivados não devem aparecer no novo "Meus Financiamentos").
+- Files changed:
+  - `migrations/0006_unify_financing_to_tracker.sql` (novo)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint .` exit 0 (apenas warnings react-refresh pré-existentes); `vitest run` -> 82 test files, 779 testes, todos passam.
+- Verificação `bun run db:migrate:local`: NÃO foi possível executar neste sandbox — Wrangler exige Node 22+ (temos v20.20.2) e não há `sqlite3` CLI/`better-sqlite3` compilado. Migração foi revisada manualmente (sintaxe SQLite/D1 compatível, sem POW/funções não portáveis). Verificação manual com `wrangler d1 migrations apply --local` ainda recomendada antes do deploy.
+- **Learnings for future iterations:**
+  - `financing_scenarios` NÃO tem coluna `modality` — a migração assume PRICE para todo cenário legado. Caso o usuário tivesse usado SAC no simulador (apenas em runtime), o dado não está persistido — não há como recuperar do banco antigo.
+  - O nome da tabela legada de pagamentos é `payment_history` (não `scenario_payments` como o PRD diz). Sempre conferir o schema real em `migrations/0002_domain.sql` antes de escrever SQL de migração.
+  - SQLite/D1 NÃO tem `POW`/`POWER` portável por padrão. Para calcular parcela PRICE em SQL, fazer em aplicação (JS/Decimal.js) e armazenar; o SQL puro deve usar placeholders aritméticos simples.
+  - `tracker_entries` tem `UNIQUE(plan_id, month_index)` — qualquer INSERT em massa por (plan, month) precisa de `INSERT OR IGNORE` (ou OR REPLACE) para não falhar a migração inteira por causa de duplicatas legadas.
+  - O `INSERT OR IGNORE` em massa SQLite aceita `select ... from ...` (não exige VALUES). Útil para migrações de dados.
+  - Para converter `reference_month` (YYYY-MM) em `month_index` 1-based a partir de `start_date` (YYYY-MM-DD): `((cast(substr(ref,1,4) as int) - cast(substr(start,1,4) as int)) * 12 + (cast(substr(ref,6,2) as int) - cast(substr(start,6,2) as int))) + 1`.
+---
+
