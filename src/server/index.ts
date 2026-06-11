@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { createAuth } from "./auth";
 import type { Env } from "./env";
 import { requireUser, type AuthVariables } from "./middleware/require-user";
+import accountRouter from "./routes/account";
 import paymentsRouter from "./routes/payments";
 import scenariosRouter from "./routes/scenarios";
 import trackerEntriesRouter from "./routes/tracker-entries";
@@ -44,6 +45,7 @@ app.route("/api/scenarios/:scenarioId/payments", paymentsRouter);
 app.route("/api/scenarios", scenariosRouter);
 app.route("/api/tracker/plans/:planId/entries", trackerEntriesRouter);
 app.route("/api/tracker/plans", trackerPlansRouter);
+app.route("/api/account", accountRouter);
 
 // Every /api/* route registered below this line requires a valid session.
 app.use("/api/*", requireUser);

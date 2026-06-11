@@ -10,6 +10,13 @@ interface ResetPasswordTemplateInput {
   publicAppUrl: string;
 }
 
+interface ChangeEmailTemplateInput {
+  url: string;
+  name?: string;
+  newEmail: string;
+  publicAppUrl: string;
+}
+
 interface RenderBrandedEmailInput {
   heading: string;
   intro: string;
@@ -137,9 +144,29 @@ export function resetPasswordTemplate({
   return { subject, html, text };
 }
 
+export function changeEmailTemplate({
+  url,
+  name,
+  newEmail,
+  publicAppUrl,
+}: ChangeEmailTemplateInput): EmailTemplate {
+  const subject = "Confirme a alteração de email — Calculadora Financeira";
+  const { html, text } = renderBrandedEmail({
+    heading: "Confirme a alteração de email",
+    intro: `${greeting(name)}, recebemos um pedido para alterar o email da sua conta para ${newEmail}. Para confirmar a alteração, clique no botão abaixo. Até a confirmação, o email da sua conta permanece o mesmo.`,
+    ctaLabel: "Confirmar alteração",
+    ctaUrl: url,
+    closing:
+      "Se você não pediu essa alteração, ignore esta mensagem — seu email atual continuará inalterado.",
+    publicAppUrl,
+  });
+  return { subject, html, text };
+}
+
 export type {
   EmailTemplate,
   RenderBrandedEmailInput,
   VerifyEmailTemplateInput,
   ResetPasswordTemplateInput,
+  ChangeEmailTemplateInput,
 };
