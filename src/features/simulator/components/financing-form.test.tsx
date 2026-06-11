@@ -5,6 +5,13 @@ import { FinancingForm } from "@/features/simulator/components/financing-form";
 import { SimulationProvider } from "@/features/simulator/hooks/simulation-provider";
 import { useSimulation } from "@/features/simulator/hooks/simulation-context";
 
+// Radix Select uses portals / pointer-capture APIs that don't work in jsdom.
+// Render a native <select> instead so fireEvent.change keeps working.
+vi.mock("@/components/ui/select", async () => {
+  const mod = await import("@/tests/select-mock");
+  return mod.selectMock;
+});
+
 // FinancingForm now consumes useSimulatorDraft (session + draft TanStack hooks).
 // Mock the query layer so these tests stay anonymous and avoid network/QueryClient.
 vi.mock("@/lib/queries/session", () => ({

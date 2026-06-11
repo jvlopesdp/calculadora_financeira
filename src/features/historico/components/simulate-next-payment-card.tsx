@@ -10,7 +10,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   buildSimulation,
   type SimulationStrategy,
@@ -112,19 +118,23 @@ export function SimulateNextPaymentCard({
           <div className="space-y-1.5">
             <Label htmlFor="simulate-strategy">Estratégia</Label>
             <Select
-              id="simulate-strategy"
               value={strategy}
-              onChange={(e) =>
-                setStrategy(e.target.value as SimulationStrategy)
+              onValueChange={(value) =>
+                setStrategy(value as SimulationStrategy)
               }
             >
-              {(Object.keys(STRATEGY_LABELS) as SimulationStrategy[]).map(
-                (s) => (
-                  <option key={s} value={s}>
-                    {STRATEGY_LABELS[s]}
-                  </option>
-                ),
-              )}
+              <SelectTrigger id="simulate-strategy">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(STRATEGY_LABELS) as SimulationStrategy[]).map(
+                  (s) => (
+                    <SelectItem key={s} value={s}>
+                      {STRATEGY_LABELS[s]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
             </Select>
           </div>
         </div>

@@ -13,6 +13,7 @@ Top-level components. Conventions for the dashboard-01 shell live here.
 ## Testing patterns
 
 - **Radix portal/popper components (DropdownMenu, Popover, Select, etc.) in jsdom**: mock the `@/components/ui/<name>` wrapper module with passthrough components and replace `Item` with a plain `<button role="menuitem" onClick={() => onSelect?.()}>`. This avoids the pointer-capture / portal stubbing dance and lets `fireEvent.click(screen.getByRole("menuitem", {name}))` exercise the handler deterministically. See `nav-user.test.tsx` for the canonical pattern.
+- **`Select` specifically** has a reusable mock at `@/tests/select-mock` that renders a real native `<select>` populated from the declarative `SelectTrigger` / `SelectContent` / `SelectItem` children — keeps `getByLabelText` + `fireEvent.change(select, { target: { value } })` working. Wire it up with `vi.mock("@/components/ui/select", async () => (await import("@/tests/select-mock")).selectMock)`.
 - **Always use `fireEvent` from `@testing-library/react`**, never `@testing-library/user-event` (not a project dep).
 - Tests that render anything under `<SidebarProvider>` need the `window.matchMedia` stub — copy the helper from `app-sidebar.test.tsx`.
 - `AppSidebar` filters the nav items by `useSession()`: the `Histórico` item is hidden for anonymous users. The upstream `dashboard-01` extra sections (`navDocuments`, `navSecondary`) are intentionally removed — only `NavMain` is rendered.

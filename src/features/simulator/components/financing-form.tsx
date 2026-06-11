@@ -4,7 +4,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CurrencyInput } from "@/components/finance/currency-input";
 import { PercentageInput } from "@/components/finance/percentage-input";
 import { formatBRL } from "@/lib/formatters/currency";
@@ -293,15 +299,30 @@ export function FinancingForm() {
 
       <div className="flex flex-col gap-1.5 md:col-span-2">
         <Label htmlFor={systemId}>Sistema de amortização</Label>
-        <Select
-          id={systemId}
-          aria-invalid={errors.system ? true : undefined}
-          aria-describedby={errors.system ? `${systemId}-error` : undefined}
-          {...register("system")}
-        >
-          <option value="PRICE">PRICE (parcelas fixas)</option>
-          <option value="SAC">SAC (amortização constante)</option>
-        </Select>
+        <Controller
+          control={control}
+          name="system"
+          render={({ field }) => (
+            <Select value={field.value} onValueChange={field.onChange}>
+              <SelectTrigger
+                id={systemId}
+                ref={field.ref}
+                name={field.name}
+                onBlur={field.onBlur}
+                aria-invalid={errors.system ? true : undefined}
+                aria-describedby={
+                  errors.system ? `${systemId}-error` : undefined
+                }
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="PRICE">PRICE (parcelas fixas)</SelectItem>
+                <SelectItem value="SAC">SAC (amortização constante)</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        />
         {errors.system?.message ? (
           <p
             id={`${systemId}-error`}

@@ -18,7 +18,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CurrencyInput } from "@/components/finance/currency-input";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import type { TrackerCurves } from "@/features/acompanhamento/lib/build-curves";
@@ -283,18 +289,24 @@ export function TrackerSpreadsheet({
       header: "Modo",
       cell: (r) => (
         <Select
-          aria-label={`Modo do mês ${r.monthIndex}`}
-          className="w-40"
           value={modeValue(r)}
           disabled={r.settled || upsert.isPending}
-          onChange={(event) =>
-            handleModeChange(r, event.target.value as ApplyMode)
-          }
+          onValueChange={(value) => handleModeChange(r, value as ApplyMode)}
         >
-          <option value="reduce_term">{APPLY_MODE_LABEL.reduce_term}</option>
-          <option value="reduce_installment">
-            {APPLY_MODE_LABEL.reduce_installment}
-          </option>
+          <SelectTrigger
+            aria-label={`Modo do mês ${r.monthIndex}`}
+            className="w-40"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="reduce_term">
+              {APPLY_MODE_LABEL.reduce_term}
+            </SelectItem>
+            <SelectItem value="reduce_installment">
+              {APPLY_MODE_LABEL.reduce_installment}
+            </SelectItem>
+          </SelectContent>
         </Select>
       ),
     },

@@ -22,7 +22,13 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   paymentSchema,
   PAYMENT_TYPES,
@@ -252,15 +258,24 @@ export function PaymentFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Tipo de pagamento</FormLabel>
-                    <FormControl>
-                      <Select {...field}>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger
+                          ref={field.ref}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
                         {PAYMENT_TYPES.map((t) => (
-                          <option key={t} value={t}>
+                          <SelectItem key={t} value={t}>
                             {TYPE_LABELS[t]}
-                          </option>
+                          </SelectItem>
                         ))}
-                      </Select>
-                    </FormControl>
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -272,15 +287,24 @@ export function PaymentFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Estratégia</FormLabel>
-                    <FormControl>
-                      <Select {...field}>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger
+                          ref={field.ref}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
                         {AMORTIZATION_STRATEGIES.map((s) => (
-                          <option key={s} value={s}>
+                          <SelectItem key={s} value={s}>
                             {STRATEGY_LABELS[s]}
-                          </option>
+                          </SelectItem>
                         ))}
-                      </Select>
-                    </FormControl>
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -6,8 +6,10 @@ Started: Tue Jun  9 19:30:36 PDT 2026
 - Theme tokens live in `src/index.css` (`:root` light + `.dark`) and are exposed as Tailwind utilities via `@theme` (`--color-*`). Use semantic classes (`bg-background`, `bg-primary`, `text-primary-foreground`, `text-foreground`, `text-muted-foreground`) instead of hex colors so light/dark mode stay consistent. `--primary` ≈ the brand red (#B94F45), `--background` ≈ the brand creme (#F7EFE2).
 - Quality gate: `bun run typecheck`, `bunx eslint <file>` (or `bun run lint`), `bun run test`. tsc emits a harmless `setlocale` warning — exit code is what matters.
 - `bun` may not be available in every sandbox — fall back to `node_modules/.bin/tsc -b --noEmit`, `node_modules/.bin/eslint <files>`, and `node_modules/.bin/vitest run`. Exit code 0 == pass.
+- **Vitest in this sandbox**: the harness sometimes back-runs vitest as a background task and the `.done` sentinel never fires, hanging Ralph. Workaround: launch `vitest run` and then `until grep -q "Test Files" /tmp/.../<id>.output; do sleep 5; done` to wait for the trailing summary line. Don't chain `| tail` directly to vitest — that's what triggers the background detector.
 - No browser/MCP tooling available in this environment; UI stories' "Verify in browser" AC must be flagged as needing manual verification.
 - `BrandLogo` (`src/components/brand/brand-logo.tsx`) wraps the wordmark in a `bg-primary` contrast strip — the wordmark SVG is white text, so any caller showing it on a light surface relies on this strip. If you ever need the wordmark *without* the strip (e.g. when it's already on a dark surface), the strip is hideable via `containerClassName="hidden ..."` instead of editing the component (see `app-sidebar.tsx` for the mobile case).
+- **Select (Radix/shadcn)**: `src/components/ui/select.tsx` exports the canonical shadcn surface (`Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`, plus `SelectGroup`/`SelectLabel`/`SelectSeparator`). Controlled via `value` + `onValueChange` (not `onChange`). With `react-hook-form`, wrap with `<Controller>` (or use a `<FormField>`) and pass `field.value`/`field.onChange` — `register("name")` does NOT work because the trigger is a `<button>`, not a `<select>`. The trigger button is what receives `id` for `Label htmlFor`. A test-only mock at `src/tests/select-mock.tsx` (exported as `selectMock`) renders a real native `<select>` so `fireEvent.change(select, { target: { value } })` keeps working — register it via `vi.mock("@/components/ui/select", async () => (await import("@/tests/select-mock")).selectMock)`.
 ---
 
 ## 2026-06-09 - US-001
@@ -32,6 +34,29 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - Os tokens `--foreground`/`--muted-foreground` do tema já têm contraste AA folgado em ambos os modos; não há necessidade de cores especiais para o hero. Use sempre os tokens semânticos.
   - Para auditar contraste sem browser, dá pra converter oklch->sRGB e calcular o ratio WCAG num script bun (ver /tmp durante esta iteração). Útil porque OKLCH L != luminância WCAG.
   - Browser verification não pôde ser feita (sem dev-browser/MCP neste ambiente) — checagem visual manual de light/dark ainda recomendada.
+---
+
+## 2026-06-10 - US-004
+- Migrei `src/components/ui/select.tsx` do `<select>` nativo (com `appearance-none` + SVG inline) para o componente shadcn baseado em `@radix-ui/react-select`. Exporta `Select`, `SelectGroup`, `SelectValue`, `SelectTrigger`, `SelectContent`, `SelectLabel`, `SelectItem`, `SelectSeparator`, `SelectScrollUp/DownButton`. Trigger usa `bg-background text-foreground border-input ring-ring`, content/itens usam `bg-popover text-popover-foreground` e `font-sans` — todas as cores são tokens do tema (zero hex).
+- Adicionada dependência `@radix-ui/react-select@^2.3.0` em `package.json` (justificada para padronização visual — sem mais fundo azul nativo nem font diferente).
+- Migrei todos os 8 callers para o padrão Trigger/Content/Item:
+  - `src/features/historico/components/simulate-next-payment-card.tsx`
+  - `src/features/historico/components/payment-form-dialog.tsx` (2 fields, com FormField + ref/onBlur/name pelo SelectTrigger)
+  - `src/features/acompanhamento/pages/acompanhamento-novo-page.tsx`
+  - `src/features/acompanhamento/components/tracker-what-if-dialog.tsx` (2 selects — mês como string)
+  - `src/features/acompanhamento/components/tracker-spreadsheet.tsx` (selector de Modo por linha)
+  - `src/features/simulator/components/amortization-table.tsx`
+  - `src/features/simulator/components/rent-vs-buy-card.tsx` (unidade do horizonte)
+  - `src/features/simulator/components/financing-form.tsx` (sistema, agora via `Controller`)
+- Cobertura de testes mantida via novo mock reutilizável `src/tests/select-mock.tsx`: renderiza um `<select>` nativo a partir dos children declarativos (lê `SelectTrigger`/`SelectContent`/`SelectItem` por `displayName`). Aplicado em 5 test files (`financing-form`, `rent-vs-buy-card`, `amortization-table`, `tracker-spreadsheet`, `tracker-what-if-dialog`) com `vi.mock("@/components/ui/select", async () => (await import("@/tests/select-mock")).selectMock)`.
+- Atualizei `src/components/CLAUDE.md` (seção "Testing patterns") apontando o novo mock como o padrão canônico para Select em testes.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint .` exit 0 (apenas warnings de `react-refresh` no mock — não bloqueiam); `vitest run` → 82 test files, 779 testes, todos passam.
+- Browser verification: não há browser MCP neste sandbox — verificação visual manual (focus ring, scroll, dark mode) ainda recomendada.
+- **Learnings for future iterations:**
+  - O padrão shadcn Radix Select é incompatível com `register("nome")` do `react-hook-form` porque o trigger é um `<button>`, não um `<select>`. Use `<Controller>` (ou já dentro de `<FormField>` com `render={({field})=>...}`), passando `field.value` para `value` e `field.onChange` para `onValueChange`. Repasse `field.ref`/`field.onBlur`/`field.name` no `SelectTrigger` para preservar foco/blur/name nativos.
+  - O `id` do controle (para o `Label htmlFor`) vai no `SelectTrigger` (e não na raiz `Select`). Mesma coisa para `aria-label`/`aria-invalid`/`aria-describedby`/`className` — todos no Trigger.
+  - Valores precisam ser sempre **strings**. Em `tracker-what-if-dialog` o seletor de mês passou a `value={String(month)}` + `setMonth(Number(value))` no handler.
+  - Para jsdom, Radix Select quebra por causa de pointer-capture/portal. O novo `src/tests/select-mock.tsx` renderiza um `<select>` real a partir dos children — mantém `getByLabelText`/`select.options`/`fireEvent.change(...{target:{value}})` funcionando sem precisar tocar nas asserts existentes.
 ---
 
 ## 2026-06-10 - US-003

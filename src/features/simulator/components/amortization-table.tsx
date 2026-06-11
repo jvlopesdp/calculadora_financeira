@@ -9,7 +9,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { formatBRL } from "@/lib/formatters/currency";
 import { formatInteger } from "@/lib/formatters/number";
@@ -212,17 +218,19 @@ export function AmortizationTable() {
             <div className="flex flex-col gap-1.5 md:max-w-xs">
               <Label htmlFor={scenarioId}>Cenário</Label>
               <Select
-                id={scenarioId}
                 value={scenario}
-                onChange={(event) =>
-                  setScenario(event.target.value as ScenarioId)
-                }
+                onValueChange={(value) => setScenario(value as ScenarioId)}
               >
-                {SCENARIO_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                <SelectTrigger id={scenarioId}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SCENARIO_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <DataTable
