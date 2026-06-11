@@ -134,11 +134,18 @@ export function TrackerSpreadsheet({
       const normalRow = curves.normal[month - 1];
       const realizedRow = realizedMonths[month - 1];
       const settled = realizedRow === undefined;
+      // "Parcela prevista" reflete a parcela vigente do mês — após um
+      // lançamento `reduce_installment`, todas as parcelas seguintes têm
+      // `scheduledInstallment` recalculado pelo engine (US-012). Meses já
+      // quitados pela antecipação caem no cronograma original.
+      const scheduledInstallment = settled
+        ? (normalRow?.installment ?? new Decimal(0))
+        : realizedRow.scheduledInstallment;
       result.push({
         monthIndex: month,
         dueDate: dueDateBR(plan.start_date, month - 1),
         dueIso: dueDateIso(plan.start_date, month - 1),
-        scheduledInstallment: normalRow?.installment ?? new Decimal(0),
+        scheduledInstallment,
         entry: entryByMonth.get(month) ?? null,
         balanceAfter: settled ? null : realizedRow.balance,
         settled,

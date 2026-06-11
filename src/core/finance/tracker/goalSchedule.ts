@@ -71,6 +71,7 @@ export function goalSchedule(
       months.push({
         monthIndex: month,
         installment: owed,
+        scheduledInstallment,
         interest,
         amortization: balance,
         balance: ZERO,
@@ -84,6 +85,7 @@ export function goalSchedule(
     months.push({
       monthIndex: month,
       installment: target,
+      scheduledInstallment,
       interest,
       amortization,
       balance,
