@@ -74,6 +74,10 @@ export function NavUser() {
     });
   }
 
+  function handleAccount() {
+    navigate("/conta");
+  }
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -126,7 +130,7 @@ export function NavUser() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem disabled>
+              <DropdownMenuItem onSelect={handleAccount}>
                 <IconUserCircle />
                 Conta
               </DropdownMenuItem>
