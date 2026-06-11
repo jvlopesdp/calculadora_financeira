@@ -1,10 +1,7 @@
 /**
- * Canonical unified "Meus Financiamentos" router (US-007). Backed by the
- * `tracker_plans` table — the single source of truth for a user's
- * financings post US-006 unification. Pair with `tracker-entries.ts` (the
- * nested entries CRUD). The legacy `/api/scenarios/*` route is now a shim
- * over the deprecated `financing_scenarios` table and will be dropped in
- * US-020.
+ * "Meus Financiamentos" router. Backed by the `tracker_plans` table — the
+ * single source of truth for a user's financings. Pair with
+ * `tracker-entries.ts` (the nested entries CRUD).
  */
 import { Hono } from "hono";
 import { z } from "zod";

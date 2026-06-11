@@ -302,3 +302,4 @@ O problema central: a identidade visual está inconsistente e com contraste ruim
 3. **Sessões ao trocar senha:** ao trocar a senha, devemos revogar as demais sessões ativas do usuário? Sim
 4. **Remoção das tabelas antigas:** quando agendar a remoção física de `financing_scenarios`/`scenario_payments` após a migração (mesma release ou release seguinte)? O que achar mais rápido
 5. **Nome da aba/rota:** confirmar slug `/meus-financiamentos` e rótulo "Meus Financiamentos" (vs. "Meu Financiamento" no singular). Faça no plural
+

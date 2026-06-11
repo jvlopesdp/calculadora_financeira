@@ -142,7 +142,7 @@ describe("useSimulatorDraft", () => {
     const putCall = fetchMock.mock.calls.find(
       ([, init]) => (init as RequestInit | undefined)?.method === "PUT",
     );
-    expect(putCall?.[0]).toBe("/api/scenarios/draft");
+    expect(putCall?.[0]).toBe("/api/drafts");
   });
 
   it("restores the D1 draft for a logged-in user", async () => {

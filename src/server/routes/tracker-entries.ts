@@ -1,9 +1,7 @@
 /**
- * Canonical unified "Meus Financiamentos" entries router (US-007). Backed by
- * `tracker_entries` and nested under `/api/tracker/plans/:planId/entries`.
- * This is the single source of truth for the user's monthly payments post
- * US-006 unification; the legacy `/api/scenarios/:id/payments/*` route is a
- * shim over the deprecated `payment_history` table and goes away in US-020.
+ * "Meus Financiamentos" entries router. Backed by `tracker_entries` and
+ * nested under `/api/tracker/plans/:planId/entries`. Single source of truth
+ * for the user's monthly payments against a tracker plan.
  */
 import { Hono, type Context } from "hono";
 import Decimal from "decimal.js";

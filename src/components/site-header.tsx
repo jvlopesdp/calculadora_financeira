@@ -1,9 +1,8 @@
-import { useLocation, useMatch } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { ScenarioCombobox } from "@/features/historico/components/scenario-combobox";
 
 export function getPageTitle(pathname: string): string {
   if (pathname === "/" || pathname.startsWith("/financiamento")) {
@@ -28,7 +27,6 @@ export function getPageTitle(pathname: string): string {
 export function SiteHeader() {
   const { pathname } = useLocation();
   const title = getPageTitle(pathname);
-  const scenarioDetailMatch = useMatch("/historico/:scenarioId");
 
   return (
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height) [--header-height:--spacing(12)]">
@@ -40,7 +38,6 @@ export function SiteHeader() {
         />
         <h1 className="text-base font-medium">{title}</h1>
         <div className="ml-auto flex items-center gap-2">
-          {scenarioDetailMatch ? <ScenarioCombobox /> : null}
           <ThemeToggle />
         </div>
       </div>

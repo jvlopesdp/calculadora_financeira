@@ -12,9 +12,8 @@
  *  - DELETE /api/account          → hard-deletes the user via Better Auth's
  *                                   `auth.api.deleteUser`, which requires the
  *                                   current password for reauthentication and
- *                                   cascades to sessions, accounts, drafts,
- *                                   tracker_plans/entries and (legacy)
- *                                   financing_scenarios/payment_history.
+ *                                   cascades to sessions, accounts, drafts and
+ *                                   tracker_plans/tracker_entries.
  *
  * Password change is intentionally NOT wrapped here — clients call Better
  * Auth's existing `POST /api/auth/change-password` endpoint directly.

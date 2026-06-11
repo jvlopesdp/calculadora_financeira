@@ -85,11 +85,12 @@ src/
   core/finance/       # motor financeiro (puro, Decimal.js)
   features/
     simulator/        # UI principal do simulador
-    historico/        # cenários salvos + pagamentos (autenticado)
+    acompanhamento/   # "Meus Financiamentos" — list/detalhe/novo + tracker
+    account/          # página de conta (/conta)
     auth/             # login, cadastro, recuperação, verificação
   components/         # shadcn/ui + componentes de domínio
   lib/                # api-client, auth-client, formatters, helpers
-  server/             # Worker Hono: /api/auth/*, /api/scenarios/*, etc.
+  server/             # Worker Hono: /api/auth/*, /api/tracker/plans/*, /api/account, /api/drafts
 migrations/           # SQL D1 (better-auth, domain, rate-limit)
 ```
 

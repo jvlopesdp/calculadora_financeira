@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail  # Exit on error, undefined vars, and pipeline failures
-IFS=$'\n\t'       # Stricter word splitting
+IFS=$'\n\t'        # Stricter word splitting
 
 # 1. Extract Docker DNS info BEFORE any flushing
 DOCKER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
@@ -12,6 +12,15 @@ iptables -t nat -F
 iptables -t nat -X
 iptables -t mangle -F
 iptables -t mangle -X
+
+# FIX: Reset default policies to ACCEPT.
+# Policies set to DROP in a previous run persist across container restarts,
+# and "iptables -F" only clears rules, not policies. Without this reset,
+# the curl to api.github.com below fails with exit code 7 on every restart.
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
 ipset destroy allowed-domains 2>/dev/null || true
 
 # 2. Selectively restore ONLY internal Docker DNS resolution
@@ -42,9 +51,11 @@ ipset create allowed-domains hash:net
 
 # Fetch GitHub meta information and aggregate + add their IP ranges
 echo "Fetching GitHub IP ranges..."
-gh_ranges=$(curl -s https://api.github.com/meta)
+# FIX: retry + timeout to make the fetch more resilient; "|| true" prevents
+# set -e from killing the script before we can print a useful error message.
+gh_ranges=$(curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 10 https://api.github.com/meta || true)
 if [ -z "$gh_ranges" ]; then
-    echo "ERROR: Failed to fetch GitHub IP ranges"
+    echo "ERROR: Failed to fetch GitHub IP ranges (check network/VPN/proxy)"
     exit 1
 fi
 
@@ -78,7 +89,6 @@ for domain in \
         echo "WARNING: Failed to resolve $domain — skipping"
         continue
     fi
-
     while read -r ip; do
         if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
             echo "WARNING: Invalid IP from DNS for $domain: $ip — skipping"

@@ -16,4 +16,4 @@ TanStack Query hooks — the single layer the SPA uses to read/write D1-backed s
 
 - Wrap `renderHook`/`render` in `<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>`. `retry: false` makes rejected queries surface `isError` immediately.
 - Mock `@/lib/api-client` with `vi.importActual` + spread, overriding only the functions under test (keeps `ApiError` and types intact).
-- This gotcha cascades: ANY component test that renders something using these hooks (including `<AppRoutes/>` / `<AppShell/>`, since the shell mounts `MigrateLocalSimulationDialog`) needs the provider or it throws "No QueryClient set".
+- This gotcha cascades: ANY component test that renders something using these hooks (including `<AppRoutes/>` / `<AppShell/>`, since the shell mounts hooks like `useSession` through `NavUser`) needs the provider or it throws "No QueryClient set".

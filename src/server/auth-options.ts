@@ -35,7 +35,7 @@ export const sharedAuthOptions = {
       // Hard delete on confirm — the `/api/account` DELETE endpoint calls
       // `auth.api.deleteUser({ body: { password }, ... })` to reauthenticate
       // and drop the user. `ON DELETE CASCADE` removes sessions/accounts/
-      // tracker_plans/financing_scenarios/scenario_drafts in the same step.
+      // tracker_plans/tracker_entries/scenario_drafts in the same step.
       enabled: true,
     },
   },
