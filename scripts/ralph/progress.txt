@@ -202,3 +202,23 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - Mantenha o page-test (`acompanhamento-detail-page.test.tsx`) mockando `TrackerCurvesChart`: ele depende de `ResizeObserver` e de SVG layout, e o objetivo do page-test é foco em wiring/KPIs/spreadsheet/delete — render do chart real é responsabilidade de `tracker-curves-chart.test.tsx`.
 ---
 
+## 2026-06-10 - US-011
+- Story materialmente já satisfeita por trabalho anterior: `TrackerSpreadsheet` (`src/features/acompanhamento/components/tracker-spreadsheet.tsx`) já é renderizado em `AcompanhamentoDetailPage` (linha 155) — que é a página servida em `/meus-financiamentos/:id` desde o US-008 — e cobre todas as 4 ACs funcionais:
+  - AC#1 colunas (Mês, Vencimento, Parcela prevista, Pago, Modo, Saldo após, Nota, Ações): visíveis em `columns: DataTableColumn<SpreadsheetRow>[]` (linha 243).
+  - AC#2 `CurrencyInput` para "Valor pago": linha 271 da coluna `paid` com `aria-label="Valor pago no mês N"`.
+  - AC#3 Select padronizado por linha: linha 291 da coluna `mode` usando `@/components/ui/select` (o Radix/shadcn unificado do US-004) com itens "Reduzir prazo" / "Reduzir parcela".
+  - AC#4 Persistência no modelo unificado: usa `useUpsertTrackerEntry`/`useDeleteTrackerEntry` (`src/lib/queries/tracker-plans.ts`), que chamam `upsertTrackerEntry`/`deleteTrackerEntry` no api-client → `POST /api/tracker/plans/:planId/entries` / `DELETE /.../entries/:entryId`. Nenhum write pelo shim legado `scenarios/payments`.
+- Adicionado regression guard em `tracker-spreadsheet.test.tsx` ("persists a saved payment via the unified tracker endpoint with the row's mode") que (a) muda o Modo via row select, (b) digita valor pago, (c) clica Salvar e (d) assert que o fetch foi `POST /api/tracker/plans/tp_1/entries` com body `{ month_index: 1, paid_amount: 12000, apply_mode: "reduce_installment" }`. Garante que qualquer mudança futura na URL ou payload da persistência quebra na CI, satisfazendo AC#4 de forma verificável.
+- Files changed:
+  - `src/features/acompanhamento/components/tracker-spreadsheet.test.tsx` (1 novo `it` block)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` no test/componente editado exit 0; `vitest run` (suite completa) → 84 test files, 795 testes, todos passam (+1 vs US-010).
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (digitar valor pago, mudar Modo via Select, salvar e ver o saldo recalcular).
+- **Learnings for future iterations:**
+  - O contrato do upsert do tracker via api-client é `POST /api/tracker/plans/:planId/entries` com body `UpsertTrackerEntryInput = { month_index, paid_amount, paid_at, apply_mode, note? }`. Note que `paid_amount` é em reais (não centavos) — o servidor converte. Útil pro US-012 (recálculo) e US-013 (tempo real).
+  - Quando vier debugar "porque a parcela prevista não muda ao lançar uma extra" no US-012, lembrar que `scheduledInstallment` na planilha vem de `curves.normal[month-1].installment` (cronograma original) — o problema atual é que `normal` é fixo e não considera amortizações; o que precisa ser corrigido é `curves.realized.months[i].installment` refletir o modo `reduce_installment` adequadamente. A lógica vive em `core/finance` (não no componente).
+  - O test mock do `Dialog` (`vi.mock("@/components/ui/dialog", ...)`) deste arquivo evita problemas com portal Radix em jsdom — quando precisar testar dialog fluxo em outro componente, copie o mesmo passthrough mock.
+  - `CurrencyInput` no test (com mock do Dialog) responde a `fireEvent.change(input, { target: { value: "12000" } })` enviando `12000.00` reais (não 12 000 centavos). O onChange recebe número em reais; o api-client converte pra cents no upsert.
+  - A coluna "Pago" tem `aria-label="Valor pago no mês N"` no input mas o header da coluna é "Pago" (compacto). Se uma futura AC exigir literalmente "Valor pago" no header da coluna, lembrar de mudar `header: "Pago"` para `header: "Valor pago"` em `columns` (linha 267).
+---
+

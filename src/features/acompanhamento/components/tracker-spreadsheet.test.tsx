@@ -267,6 +267,56 @@ describe("TrackerSpreadsheet", () => {
     expect(screen.queryByText("Quitado")).not.toBeInTheDocument();
   });
 
+  it("persists a saved payment via the unified tracker endpoint with the row's mode", async () => {
+    const plan = makePlan();
+    const qc = newClient();
+    qc.setQueryData<TrackerPlanDetail>(trackerPlanQueryKey(plan.id), {
+      plan,
+      entries: [],
+    });
+
+    const fetchSpy = vi.fn(async (_url: string, _init: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => ({
+        entry: makeEntry(1, {
+          id: "real_1",
+          paid_amount_cents: 12_000_00,
+          apply_mode: "reduce_installment",
+        }),
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(
+      <QueryClientProvider client={qc}>
+        <CacheHarness plan={plan} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Modo do mês 1"), {
+      target: { value: "reduce_installment" },
+    });
+    fireEvent.change(screen.getByLabelText("Valor pago no mês 1"), {
+      target: { value: "12000" },
+    });
+    fireEvent.click(
+      within(dataRows()[0]).getByRole("button", { name: "Salvar" }),
+    );
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("/api/tracker/plans/tp_1/entries");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({
+      month_index: 1,
+      paid_amount: 12_000,
+      apply_mode: "reduce_installment",
+    });
+  });
+
   it("deletes an entry after confirmation", async () => {
     const plan = makePlan();
     const qc = newClient();
