@@ -13,6 +13,7 @@ import { LoginPage } from "@/features/auth/pages/login-page";
 import { RegisterPage } from "@/features/auth/pages/register-page";
 import { ResetPasswordPage } from "@/features/auth/pages/reset-password-page";
 import { VerifyEmailPage } from "@/features/auth/pages/verify-email-page";
+import { AccountPage } from "@/features/account/pages/account-page";
 import { AcompanhamentoDetailPage } from "@/features/acompanhamento/pages/acompanhamento-detail-page";
 import { AcompanhamentoNovoPage } from "@/features/acompanhamento/pages/acompanhamento-novo-page";
 import { AcompanhamentoPage } from "@/features/acompanhamento/pages/acompanhamento-page";
@@ -78,6 +79,7 @@ export function AppRoutes() {
             path="/meus-financiamentos/:id"
             element={<AcompanhamentoDetailPage />}
           />
+          <Route path="/conta" element={<AccountPage />} />
         </Route>
 
         {/* Redirecionamentos das rotas legadas (Histórico + Acompanhamento) para a nova aba "Meus Financiamentos". */}

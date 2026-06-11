@@ -331,3 +331,41 @@ Started: Tue Jun  9 19:30:36 PDT 2026
   - Para testar navegação por menu (sem MemoryRouter aninhado), registre uma rota de destino simples (`<Route path="/conta" element={<div>conta page</div>} />`) no `Routes` do helper de teste; assert via `screen.getByText("conta page")`. Mesmo padrão já usado para `/login`.
   - O `/conta` propriamente dito chega em US-017 (página `Minha Conta`). Por enquanto a navegação cai no `NotFoundPage` — não há trabalho extra em US-016 para "pré-criar" a rota; mantém o escopo mínimo da história.
 ---
+
+## 2026-06-11 - US-017
+- Nova página protegida `/conta` ("Minha Conta") que exibe nome, e-mail e data de criação do usuário autenticado e permite editar nome+e-mail. Reusa os endpoints já criados em US-015 (`GET /api/account` / `PATCH /api/account`).
+- Frontend wiring (sem precisar de novos endpoints):
+  - `src/lib/api-client.ts`: novo bloco "Account management" com `AccountApi`/`UpdateAccountInput`/`UpdateAccountResponse` e helpers `getAccount()` / `updateAccount(input)` sobre `/api/account`.
+  - `src/lib/queries/account.ts` (novo): `useAccount` (cache key `["account"]`) e `useUpdateAccount`; o `onSuccess` da mutation faz `setQueryData(["account"], data.account)` E invalida `SESSION_QUERY_KEY` para que `NavUser` / `useSession` puxem o nome atualizado em seguida (AC#4 "UI/sessão atualiza após salvar").
+  - `src/features/account/schemas/account-profile.ts` (novo): zod `name(1-100)` + `email`.
+  - `src/features/account/pages/account-page.tsx` (novo): Card com data de criação + formulário shadcn (Form/FormField/Input). Submit envia um patch só com os campos alterados; mensagens de feedback (`account-success`, `account-email-pending`, `account-error-message`) + Skeleton em loading e `Alert` em erro. Sucesso da troca de e-mail mostra `Alert` orientando que a mudança vale após confirmar.
+- Rota wiring:
+  - `src/app/routes.tsx`: `<Route path="/conta" element={<AccountPage />} />` dentro de `<ProtectedRoute>` (rota protegida).
+  - `src/components/site-header.tsx`: `getPageTitle` agora mapeia `/conta` → "Minha Conta" (e atualização do teste parametrizado em `site-header.test.tsx`).
+- Cobertura de testes nova (+14 testes vs US-016, total 88 files / 840 tests):
+  - `src/features/account/pages/account-page.test.tsx` (9 testes): loading state, error state, render de nome/email/data, salvar nome chama `PATCH` com apenas o campo alterado, banner "confirme o novo email" no caso de e-mail novo, "nenhuma alteração" no submit vazio, tradução pt-BR de `EMAIL_TAKEN`, botão desabilitado durante save, validação client-side de email.
+  - `src/lib/queries/account.test.tsx` (2 testes): `useAccount` chama `getAccount`; `useUpdateAccount` chama `updateAccount`, seeda `["account"]` e invalida `["session"]`.
+  - `src/app/App.test.tsx`: smoke de `/conta` para anônimo (auth modal) e autenticado (heading "Minha Conta").
+  - `src/components/site-header.test.tsx`: nova linha `["/conta", "Minha Conta"]` no `getPageTitle.each`.
+- Files changed:
+  - `src/lib/api-client.ts` (novo bloco account)
+  - `src/lib/queries/account.ts` (novo)
+  - `src/lib/queries/account.test.tsx` (novo)
+  - `src/features/account/schemas/account-profile.ts` (novo)
+  - `src/features/account/pages/account-page.tsx` (novo)
+  - `src/features/account/pages/account-page.test.tsx` (novo)
+  - `src/app/routes.tsx` (rota /conta)
+  - `src/app/App.test.tsx` (smokes /conta)
+  - `src/components/site-header.tsx` (`getPageTitle` para /conta)
+  - `src/components/site-header.test.tsx` (linha no `each`)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos 10 arquivos editados exit 0 (apenas o warning react-refresh pré-existente em `site-header.tsx` — esperado, já era assim antes); `vitest run` (suite completa) → 88 test files, 840 testes, todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (entrar logado em `/conta` via menu "Conta", editar o nome → ver feedback "Alterações salvas" e nome trocar no `NavUser` sem reload; editar o e-mail → ver banner "Confirme o novo email" e e-mail antigo permanecer; em outro dispositivo, deslogar e tentar acessar `/conta` → ver modal de autenticação).
+- **Learnings for future iterations:**
+  - A regra de "UI/sessão atualiza após salvar" para mudanças de nome resolve-se invalidando `SESSION_QUERY_KEY` no `onSuccess` da mutation (já que `NavUser` lê de `useSession()` e o backend grava no `"user"` table). NÃO existe um `setQueryData(["session"], ...)` direto — `useSession` consome o shape `{user,session}` de `getSession`, e o servidor é a fonte canônica. Invalidar + refetch é o caminho correto.
+  - Para mudanças de e-mail, NÃO atualize otimisticamente nem o `["account"]` nem o `["session"]` com o novo e-mail — o backend deliberadamente NÃO troca o e-mail no `user` até a confirmação (Better Auth dispara `changeEmail`). A UI deve mostrar o e-mail atual + banner "confirme o novo email" e resetar o form com o `account` retornado pelo PATCH (que ainda tem o e-mail antigo).
+  - Para construir o patch enviado ao `PATCH /api/account`, compare apenas os campos alterados contra `account.name` / `account.email.toLowerCase()` e omita os iguais. O backend já tem um no-op (`PATCH` sem campos → 422), então no client é melhor mostrar "Nenhuma alteração para salvar" antes de chamar.
+  - O API client lança `ApiError` (status, body) — tradução de erros conhecidos para pt-BR vive na própria página via `translateUpdateError`. Padrão: `body.error` é o `code` (string SCREAMING) e `body.message` é o motivo em inglês.
+  - O `useEffect` que faz `reset({ name, email })` quando `account` carrega É necessário: `defaultValues` do react-hook-form é avaliado uma única vez no mount, e na primeira render o account vem `null` (cache miss). Sem o `reset`, os inputs ficam vazios mesmo depois do load.
+  - O contrato `vi.fn()` para `mutateAsync` em testes de page: declarar como módulo-scope estável (não recriado por chamada de `useMutation`) e expor via `useUpdateAccountMock.mockReturnValue({ mutateAsync, isPending })`. Permite asserir `toHaveBeenCalledWith({ ... })` sem se preocupar com identidade do mock entre re-renders.
+---

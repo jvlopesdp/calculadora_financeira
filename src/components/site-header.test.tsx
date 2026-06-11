@@ -55,6 +55,7 @@ describe("getPageTitle", () => {
     ["/acompanhamento", "Meus Financiamentos"],
     ["/acompanhamento/novo", "Meus Financiamentos"],
     ["/alugar-x-financiar", "Alugar x Financiar"],
+    ["/conta", "Minha Conta"],
     ["/rota-desconhecida", "Calculadora Financeira"],
   ])("maps %s to %s", (path, expected) => {
     expect(getPageTitle(path)).toBe(expected);

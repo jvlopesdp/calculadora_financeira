@@ -336,6 +336,45 @@ export async function deleteTrackerPlan(id: string): Promise<TrackerPlanApi> {
   return body.plan;
 }
 
+// ---------------------------------------------------------------------------
+// Account management (US-015..US-019). Backed by `/api/account` and Better
+// Auth's `/api/auth/*`. The SPA reads/updates the authenticated user's profile
+// through these helpers and lets Better Auth handle email verification and
+// password change.
+// ---------------------------------------------------------------------------
+
+export interface AccountApi {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  createdAt: string | null;
+}
+
+export interface UpdateAccountInput {
+  name?: string;
+  email?: string;
+}
+
+export interface UpdateAccountResponse {
+  account: AccountApi;
+  emailVerificationSent: boolean;
+}
+
+export async function getAccount(): Promise<AccountApi> {
+  const body = await jsonFetch<{ account: AccountApi }>("/api/account");
+  return body.account;
+}
+
+export async function updateAccount(
+  input: UpdateAccountInput,
+): Promise<UpdateAccountResponse> {
+  return jsonFetch<UpdateAccountResponse>("/api/account", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export interface SessionResponse {
   user: AuthUser;
   session: AuthSession;
