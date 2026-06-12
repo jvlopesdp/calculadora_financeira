@@ -106,11 +106,11 @@ curl -i https://calculadorafinanceira.app/api/auth/get-session \
 ### Conferir rota protegida
 
 ```bash
-curl -i https://calculadorafinanceira.app/api/scenarios \
+curl -i https://calculadorafinanceira.app/api/tracker/plans \
   -H "cookie: $COOKIE"
 ```
 
-**Esperado:** `HTTP/2 200` com lista (`[]` se não houver cenários). Sem cookie deve dar `401`.
+**Esperado:** `HTTP/2 200` com `{ "plans": [] }` se não houver financiamentos. Sem cookie deve dar `401`.
 
 ---
 
@@ -143,7 +143,7 @@ curl -i https://calculadorafinanceira.app/api/auth/get-session \
 - [ ] Passo 3 cria registros em `user`/`account`/`verification` no D1 remoto.
 - [ ] Passo 4 marca `emailVerified = 1`.
 - [ ] Passo 5 devolve cookie `better-auth.session_token` e `/api/auth/get-session` autenticado retorna o user.
-- [ ] Passo 5 (variante) — `/api/scenarios` retorna 200 com cookie e 401 sem cookie.
+- [ ] Passo 5 (variante) — `/api/tracker/plans` retorna 200 com cookie e 401 sem cookie.
 - [ ] Passo 6 invalida a sessão no servidor.
 
 Se algum passo falhar, abrir issue com o `cf-ray` da resposta + saída do `wrangler d1 execute` correspondente.

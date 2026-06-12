@@ -1,3 +1,8 @@
+/**
+ * "Meus Financiamentos" router. Backed by the `tracker_plans` table — the
+ * single source of truth for a user's financings. Pair with
+ * `tracker-entries.ts` (the nested entries CRUD).
+ */
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -7,7 +12,7 @@ import { requireUser, type AuthVariables } from "../middleware/require-user";
 /**
  * Row shape for the `tracker_plans` table (snake_case, integer cents, basis
  * points for the rate, epoch-ms timestamps). One row per financing plan the
- * user is tracking under "Acompanhamento".
+ * user is tracking under "Meus Financiamentos".
  */
 export interface TrackerPlanRow {
   id: string;

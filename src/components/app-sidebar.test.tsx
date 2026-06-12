@@ -53,9 +53,20 @@ describe("AppSidebar", () => {
   it("renders all nav items for anonymous users", () => {
     renderSidebar("/financiamento");
     expect(screen.getByText("Financiamento")).toBeInTheDocument();
-    expect(screen.getByText("Histórico")).toBeInTheDocument();
-    expect(screen.getByText("Acompanhamento")).toBeInTheDocument();
+    expect(screen.getByText("Meus Financiamentos")).toBeInTheDocument();
     expect(screen.getByText("Alugar x Financiar")).toBeInTheDocument();
+  });
+
+  it("does not render the legacy Histórico / Acompanhamento nav items", () => {
+    renderSidebar("/financiamento");
+    expect(screen.queryByText("Histórico")).not.toBeInTheDocument();
+    expect(screen.queryByText("Acompanhamento")).not.toBeInTheDocument();
+  });
+
+  it("links 'Meus Financiamentos' to /meus-financiamentos", () => {
+    renderSidebar("/financiamento");
+    const link = screen.getByText("Meus Financiamentos").closest("a");
+    expect(link).toHaveAttribute("href", "/meus-financiamentos");
   });
 
   it("does not render legacy navDocuments labels", () => {

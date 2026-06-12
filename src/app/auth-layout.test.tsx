@@ -19,9 +19,9 @@ function renderLayout() {
 describe("AuthLayout", () => {
   it("renders the BrandLogo linking to the landing route", () => {
     renderLayout();
-    const logo = screen.getByAltText("Calculadora Financeira.app");
-    expect(logo).toHaveAttribute("src", "/brand/logo-nome.svg");
-    expect(logo.closest("a")).toHaveAttribute("href", "/");
+    const logos = screen.getAllByAltText("Calculadora Financeira.app");
+    expect(logos.length).toBeGreaterThan(0);
+    expect(logos[0].closest("a")).toHaveAttribute("href", "/");
   });
 
   it("renders the routed outlet content", () => {

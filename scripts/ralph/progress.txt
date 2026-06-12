@@ -1,161 +1,436 @@
 # Ralph Progress Log
-Started: Tue Jun  2 17:37:47 PDT 2026
+Started: Tue Jun  9 19:30:36 PDT 2026
 ---
 
 ## Codebase Patterns
-- Static assets live under `public/` (Vite default `publicDir`; there is no explicit `publicDir` in vite.config.ts). Files in `public/` are copied verbatim to `dist/client/` at build. Reference them by absolute path from the SPA (e.g. `/brand/icon.svg`).
-- Build is `tsc -b && vite build` via the @cloudflare/vite-plugin; **vite build is SLOW (~6 min)** because it bundles xlsx + fonts. Run builds in background and poll the process, not the output file (output is buffered until the end).
-- `bun run typecheck` = `tsc -b --noEmit`; `bun run lint` = `eslint .`; `bun run test` = `vitest run` (foreground only).
-- `Env` (`src/server/env.d.ts`) has all-required fields. Adding a new required field breaks every fake-`Env` in `src/server/**/*.test.ts` — grep `BETTER_AUTH_URL:` and add the field next to it in each.
-- Server auth/url logic is written as pure exported helpers and unit-tested directly (never instantiate `betterAuth()` — it starts a background D1 init promise that rejects with a fake DB). See `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl` in `auth.ts`.
-- `wrangler` CLI requires Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs cannot be executed here — defer to CI.
-- Rasterize brand SVGs with ImageMagick: `convert -background none -density 300 -resize WxH in.svg out.png` (`/usr/bin/convert` exists; `rsvg-convert`/`inkscape`/`magick` do not). NOTE: `logo-nome.svg` is a WHITE wordmark — never place it on white/cream; back it with a dark/brand-colored fill.
-- Transactional emails (`src/server/email-templates.ts`) go through `renderBrandedEmail` — keep CSS fully inline (no `<style>`), pass RAW (unescaped) `name`/`url` (the helper escapes everything), and thread `publicAppUrl: env.PUBLIC_APP_URL` for the logo/footer links.
-
-## 2026-06-02 17:50 - US-001
-- Moved brand SVGs into a dedicated stable folder and wired them for build.
-- Created `public/brand/`. Moved root `logo-nome.svg` → `public/brand/logo-nome.svg`, `logo-calculadora-financeira.svg` → `public/brand/logo-mark.svg`, `icon-theme.svg` → `public/brand/icon.svg`. Originals removed from repo root by the move.
-- No `public/vite.svg` existed (the repo had no `public/` dir at all); `/vite.svg` is only referenced in `index.html` and will be replaced in US-002.
-- Files changed: added `public/brand/{logo-nome.svg,logo-mark.svg,icon.svg}`; removed root SVGs.
-- Verified: `bun run typecheck` passes; `bun run build` succeeds and emits `dist/client/brand/{logo-nome.svg,logo-mark.svg,icon.svg}`.
-- **Learnings for future iterations:**
-  - The first build on this branch took ~6m14s — budget time accordingly; subsequent incremental builds may be faster.
-  - `logo-nome.svg` is large (~20KB) and is the full wordmark; `logo-mark.svg` (~865B) is the compact mark; `icon.svg` (~950B) is the favicon/touch icon. US-002 should point favicon + apple-touch-icon at `/brand/icon.svg`.
-  - US-003 BrandLogo uses `/brand/logo-nome.svg`; BrandMark uses `/brand/logo-mark.svg`.
+- Theme tokens live in `src/index.css` (`:root` light + `.dark`) and are exposed as Tailwind utilities via `@theme` (`--color-*`). Use semantic classes (`bg-background`, `bg-primary`, `text-primary-foreground`, `text-foreground`, `text-muted-foreground`) instead of hex colors so light/dark mode stay consistent. `--primary` ≈ the brand red (#B94F45), `--background` ≈ the brand creme (#F7EFE2).
+- Quality gate: `bun run typecheck`, `bunx eslint <file>` (or `bun run lint`), `bun run test`. tsc emits a harmless `setlocale` warning — exit code is what matters.
+- `bun` may not be available in every sandbox — fall back to `node_modules/.bin/tsc -b --noEmit`, `node_modules/.bin/eslint <files>`, and `node_modules/.bin/vitest run`. Exit code 0 == pass.
+- **Vitest in this sandbox**: the harness sometimes back-runs vitest as a background task and the `.done` sentinel never fires, hanging Ralph. Workaround: launch `vitest run` and then `until grep -q "Test Files" /tmp/.../<id>.output; do sleep 5; done` to wait for the trailing summary line. Don't chain `| tail` directly to vitest — that's what triggers the background detector.
+- No browser/MCP tooling available in this environment; UI stories' "Verify in browser" AC must be flagged as needing manual verification.
+- `BrandLogo` (`src/components/brand/brand-logo.tsx`) wraps the wordmark in a `bg-primary` contrast strip — the wordmark SVG is white text, so any caller showing it on a light surface relies on this strip. If you ever need the wordmark *without* the strip (e.g. when it's already on a dark surface), the strip is hideable via `containerClassName="hidden ..."` instead of editing the component (see `app-sidebar.tsx` for the mobile case).
+- **Select (Radix/shadcn)**: `src/components/ui/select.tsx` exports the canonical shadcn surface (`Select`, `SelectTrigger`, `SelectValue`, `SelectContent`, `SelectItem`, plus `SelectGroup`/`SelectLabel`/`SelectSeparator`). Controlled via `value` + `onValueChange` (not `onChange`). With `react-hook-form`, wrap with `<Controller>` (or use a `<FormField>`) and pass `field.value`/`field.onChange` — `register("name")` does NOT work because the trigger is a `<button>`, not a `<select>`. The trigger button is what receives `id` for `Label htmlFor`. A test-only mock at `src/tests/select-mock.tsx` (exported as `selectMock`) renders a real native `<select>` so `fireEvent.change(select, { target: { value } })` keeps working — register it via `vi.mock("@/components/ui/select", async () => (await import("@/tests/select-mock")).selectMock)`.
+- **D1 migrations**: live in `migrations/NNNN_*.sql`, applied via `bun run db:migrate:local` (local) / `db:migrate:remote` (prod, run automatically before deploy). Plain SQL; no inline JS. Two important quirks: (a) D1 doesn't ship a portable `POW`/`POWER` — compute compounded values in app code (Decimal.js) before INSERT, not in SQL; (b) for data-migrations across tables, use `INSERT OR IGNORE INTO target (...) SELECT ... FROM source` and watch out for UNIQUE constraints on the target. Sandbox NOTE: Wrangler v4 requires Node 22+, so `db:migrate:local` cannot run here on the default Node 20 — review SQL by hand and document the limitation in the story's progress entry.
+- **Legacy vs canonical schemas** (as of US-006): `tracker_plans` + `tracker_entries` are the *canonical* model for a user's financings ("Meus Financiamentos"). The legacy `financing_scenarios` + `payment_history` tables are *deprecated but still present* (kept for rollback; physical drop scheduled in US-020). PRD wording sometimes calls the legacy payments table `scenario_payments` — the real name is `payment_history` (see `migrations/0002_domain.sql`). The legacy scenarios table has no `modality` column; assume PRICE when migrating.
+- **Unified API surface** (as of US-007): the canonical "Meus Financiamentos" routes are `/api/tracker/plans/*` (router in `src/server/routes/tracker-plans.ts`) and `/api/tracker/plans/:planId/entries/*` (router in `src/server/routes/tracker-entries.ts`). The api-client functions for these live in the `// Unified "Meus Financiamentos" resource` block of `src/lib/api-client.ts` — `listTrackerPlans`, `createTrackerPlan`, `getTrackerPlan` (returns `{plan, entries}`), `deleteTrackerPlan`, `upsertTrackerEntry`, `deleteTrackerEntry`. The `/api/scenarios/*` + `/api/scenarios/:id/payments/*` routes (and the `*Scenario*`/`*Payment*` functions in api-client) are *legacy shims* over the deprecated tables; do not add new features through them — they go away in US-020. When mounting both unified routers on the same Hono app, register the nested `entries` route BEFORE the parent `plans` route (mirrors `src/server/index.ts`); reversing the order makes the plans `/:id` swallow `/:id/entries`.
+- **"Meus Financiamentos" SPA routes** (as of US-008): canonical paths under `<ProtectedRoute>` in `src/app/routes.tsx` are `/meus-financiamentos` (list — `AcompanhamentoPage`), `/meus-financiamentos/novo` (`AcompanhamentoNovoPage`), `/meus-financiamentos/:id` (`AcompanhamentoDetailPage`). Legacy `/historico`, `/historico/:scenarioId`, `/acompanhamento`, `/acompanhamento/novo`, `/acompanhamento/:id` resolve via `<Navigate replace>` (top-level paths) or the small `LegacyFinancingDetailRedirect` helper (param-aware paths). Detail param renames from `scenarioId`/`id` to `id`. Existing in-component navigations to `/acompanhamento/*` or `/historico/*` still work via the redirect hop — don't bulk-rewrite them inside this story; that's cleanup scope for US-020. Sidebar shows the single "Meus Financiamentos" item (`IconReceipt2`); `getPageTitle` collapses `/historico`, `/acompanhamento`, `/meus-financiamentos` to the same "Meus Financiamentos" title.
+- **KPI builders** (as of US-009): one pure module per surface (`build-<area>-kpis.ts`) that takes the already-computed engine state (`TrackerCurves` for tracker / `CurrentState` from `replay-payments` for scenarios) and returns `KpiCardData[]`. Compose in the page with `useMemo`, render via `<SectionCards items={…}/>`. Empty-state contract: when state is missing return one placeholder per slot with `value: "—"` and `hint: "Registre lançamentos para acompanhar o progresso."`. Tests should exercise `buildCurves` end-to-end (cheap, in-memory) rather than stubbing a curves object — keeps schedule regressions visible. `SectionCards` testId is the diacritic-stripped slug of the title (e.g. `"% já pago"` → `kpi-card-ja-pago-value`).
+- **Optimistic mutation re-render flow** (as of US-013): pages that derive UI from a React Query cache key should keep all derived state behind `useMemo([data])` — never duplicate the computed values into local state. The optimistic update inside `useUpsertTrackerEntry`/`useDeleteTrackerEntry` writes to the same `trackerPlanQueryKey(planId)` that `useTrackerPlan` reads, so any consumer (`AcompanhamentoDetailPage` for KPIs/chart, `TrackerSpreadsheet` for the table) re-renders automatically with the new data. To unit-test the real-time recompute end-to-end (not just the spreadsheet), wrap the page in a real `QueryClient`, stub only `fetch` (route `/api/tracker/plans/:id` for GET and `/api/tracker/plans/:id/entries` for POST), and drive the save through the existing `Valor pago no mês N` input + `Salvar` button. Mock chart + dialog (Radix portals); use the canonical `selectMock` for the row Select.
+- **Account management endpoints** (as of US-015): canonical surface is `/api/account` (GET/PATCH/DELETE) — see `src/server/routes/account.ts`. PATCH handles `name` (direct SQL on `"user"`) and `email` (delegates to `auth.api.changeEmail` so the change only applies after the verification link is clicked). DELETE delegates to `auth.api.deleteUser` with `{ password }` for reauth — `ON DELETE CASCADE` cleans up everything. Password change is NOT wrapped — the SPA calls Better Auth's existing `POST /api/auth/change-password` directly with `{ currentPassword, newPassword, revokeOtherSessions: true }`. Better Auth's account endpoints (`changeEmail`/`deleteUser`/`changePassword`) require their feature flag in `user.changeEmail.enabled`/`user.deleteUser.enabled` (`auth-options.ts`), and the codebase sets `session.freshAge = 0` to disable the "sensitive session" 24h gate (security stays at password-reauth + 30d session TTL).
+- **Calling Better Auth from a worker route** (as of US-015): `auth.api.<endpointName>({ body, headers: c.req.raw.headers })` calls the same handler that `/api/auth/*` exposes — no need to fabricate a Request. Returns JSON on success; throws `APIError` (from `better-auth/api`) on failure. Translate via `try { ... } catch (err) { if (err instanceof APIError) return c.json({ error: err.body?.code ?? "bad_request", message: err.body?.message }, err.statusCode ?? 400); throw err; }`. For tests, mock `createAuth` to return `{ api: { getSession, changeEmail, deleteUser, ... } }` and have the endpoint methods throw `new APIError("BAD_REQUEST", { code: "INVALID_PASSWORD", message: "..." })` to exercise the error path.
+- **Calling Better Auth from the SPA** (as of US-018): the React `authClient` from `src/lib/auth-client.ts` exposes Better Auth endpoints as top-level methods via the dynamic-path proxy. Password change is `authClient.changePassword({ currentPassword, newPassword, revokeOtherSessions })` — returns `{ data, error }` shape (NOT throws). The known `error.code` values are `INVALID_PASSWORD` (senha atual incorreta), `PASSWORD_TOO_SHORT`, `PASSWORD_TOO_LONG`, `CREDENTIAL_ACCOUNT_NOT_FOUND` (conta sem senha — entrou via Google) — translate to pt-BR in the page-level error handler (see `translateChangePasswordError` em `account-page.tsx`). Always pass `revokeOtherSessions: true` para satisfazer o AC de "revoga as demais sessões ativas" (US-018).
+- **ScheduleMonth.scheduledInstallment vs installment** (as of US-012): all tracker schedules (`normalSchedule`/`realizedSchedule`/`goalSchedule`) emit two installment fields per row. `installment` = valor efetivamente desembolsado no mês (= o lançamento, ou o pagamento de quitação na linha final, ou a parcela vigente em meses sem lançamento). `scheduledInstallment` = parcela vigente no INÍCIO do mês, *antes* do lançamento. Em `normalSchedule` (e em qualquer schedule sem extras) os dois são iguais. Em `realizedSchedule`, após um lançamento `reduce_installment` com excedente positivo, todos os meses seguintes têm `scheduledInstallment` recalculado (menor). **Use `realizedRow.scheduledInstallment` (não `normalRow.installment`) para qualquer coluna "Parcela prevista" — caso contrário a UI mostra o cronograma original mesmo após reduções**. O engine guarda recálculo apenas quando `paid - scheduled > R$ 0,01` para evitar drift de arredondamento ao pagar exatamente a parcela vigente.
 ---
 
-## 2026-06-02 18:45 - US-002
-- Updated `index.html` with brand favicon, title, and metadata.
-- Changes in `index.html`: favicon `<link rel="icon">` now points to `/brand/icon.svg` (was `/vite.svg`); added `<link rel="apple-touch-icon" href="/brand/icon.svg">`; added `<meta name="theme-color" content="#B94F45">`; added `<meta name="description">` (≤160 chars); `<title>` changed from 'Simulador Financeiro' to 'Calculadora Financeira.app'.
-- Files changed: `index.html`.
-- Verified: `grep -rn 'vite.svg' src/ index.html public/` returns nothing; `bun run typecheck` passes; `bun run lint` passes (0 errors, only a pre-existing react-refresh warning in site-header.tsx).
-- Browser verification: NO browser/dev-browser MCP tooling is available in this environment — manual browser verification of favicon + tab title still needed (NOK for automated check, but functionally trivial for a static index.html change).
+## 2026-06-09 - US-001
+- Replaced hardcoded hex colors in the Landing page with theme tokens.
+- Files changed: `src/features/landing/pages/landing-page.tsx`
+  - `bg-[#F7EFE2]` -> `bg-background` on the root container
+  - `bg-[#B94F45] text-white hover:bg-[#B94F45]/90` -> `bg-primary text-primary-foreground hover:bg-primary/90` on the "Criar conta" and "Começar a simular" CTAs
+- Quality checks: typecheck passes; eslint on the file passes. No hex colors remain (grep clean).
 - **Learnings for future iterations:**
-  - No browser MCP is configured here; stories with "Verify in browser" ACs cannot be auto-verified — note manual verification and rely on typecheck/lint/tests.
-  - `index.html` lives at repo root (`/workspace/index.html`), not under `src/` or `public/`. The description meta uses the exact suggested copy. Title is the canonical brand string 'Calculadora Financeira.app' — reuse this exact casing elsewhere (alt-text, og tags) for consistency.
-  - Editing `index.html` triggers a harmless "LF will be replaced by CRLF" git warning on this checkout.
+  - Theme tokens are already defined for both light and dark in `src/index.css`; the brand creme/red map cleanly to `--background`/`--primary`, so no new CSS was needed.
+  - The default shadcn `Button` variant is already `bg-primary`; the explicit classes here are kept to satisfy the AC wording but are effectively redundant for the primary CTAs.
+  - Browser verification could not be performed (no dev-browser/MCP tools in this environment) — manual browser check of light/dark still recommended for US-002/US-003.
 ---
 
-## 2026-06-02 18:52 - US-003
-- Created reusable React brand components `BrandLogo` and `BrandMark`.
-- Files changed: added `src/components/brand/brand-logo.tsx`, `src/components/brand/brand-mark.tsx`, `src/components/brand/brand-logo.test.tsx`, `src/components/brand/brand-mark.test.tsx`.
-- `BrandLogo` renders `<img src="/brand/logo-nome.svg" alt="Calculadora Financeira.app" loading="eager">`; `BrandMark` uses `/brand/logo-mark.svg`. Both take an optional `className` prop (strict interface, no `any`).
-- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); brand tests pass (4/4) via `bun run test -- src/components/brand`.
+## 2026-06-09 - US-002
+- Corrigido contraste do texto do hero em dark mode na Landing.
+- Files changed: `src/features/landing/pages/landing-page.tsx`
+  - h1 do hero agora usa explicitamente `text-foreground` (antes apenas herdava do container); subtítulos já usavam `text-muted-foreground`.
+- Verificação de contraste WCAG (oklch -> sRGB -> ratio): light fg/bg 16.32:1, light muted-fg/bg 7.15:1, dark fg/bg 16.03:1, dark muted-fg/bg 11.74:1. Todos passam AA (>=4.5:1) em light e dark.
+- Quality checks: typecheck passes; eslint no arquivo passes.
 - **Learnings for future iterations:**
-  - Test pattern: smoke-test `<img>` via `screen.getByAltText("Calculadora Financeira.app")` then assert `toHaveAttribute("src", ...)`. Both logos share the same alt-text, so when both are mounted in the same tree (e.g. US-004 AppShell with responsive show/hide), query by `src` or use `getAllByAltText` to disambiguate.
-  - US-004 will wrap these in `<Link>` (BrandLogo → /financiamento in AppShell, → / in AuthLayout) and apply responsive classes (`hidden md:block` / `md:hidden`).
-  - Vitest startup here is heavy (~50s for env/collect even for 2 trivial files); scope `bun run test -- <path>` to the story's files when iterating.
+  - Os tokens `--foreground`/`--muted-foreground` do tema já têm contraste AA folgado em ambos os modos; não há necessidade de cores especiais para o hero. Use sempre os tokens semânticos.
+  - Para auditar contraste sem browser, dá pra converter oklch->sRGB e calcular o ratio WCAG num script bun (ver /tmp durante esta iteração). Útil porque OKLCH L != luminância WCAG.
+  - Browser verification não pôde ser feita (sem dev-browser/MCP neste ambiente) — checagem visual manual de light/dark ainda recomendada.
 ---
 
-## 2026-06-02 18:59 - US-004
-- Applied BrandLogo/BrandMark to the authenticated AppShell (sidebar header) and the AuthLayout.
-- `src/components/app-sidebar.tsx`: replaced the `IconInnerShadowTop` + "Calculadora Financeira" `<span>` placeholder inside the existing `<Link to="/financiamento">` with `<BrandLogo className="hidden h-8 w-auto md:block" />` + `<BrandMark className="h-8 w-auto md:hidden" />` (responsive: wordmark on >=md, compact mark on mobile). Removed the now-unused `IconInnerShadowTop` import. Gave the SidebarMenuButton `h-auto` so the taller logo isn't clipped.
-- `src/app/auth-layout.tsx`: removed the old `<header>` + serif "Calculadora Financeira" `<span>`; render a centered `<BrandLogo className="h-10 w-auto" />` wrapped in `<Link to="/">` above the `<Outlet />`.
-- Added `src/app/auth-layout.test.tsx`: asserts the BrandLogo renders with `/brand/logo-nome.svg` and its link points to `/`, and that the routed outlet content renders.
-- Files changed: `src/components/app-sidebar.tsx`, `src/app/auth-layout.tsx`, `src/app/auth-layout.test.tsx`.
-- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); tests green — app-sidebar (5), site-header (15), brand (4), App routing (8), protected-route (4), auth-layout (2).
-- The literal string 'Simulador Financeiro' was already absent from `src/` (the prior placeholder was the brand text + Vite icon "Calculadora Financeira"); AC satisfied. AppShell page-title fallback "Calculadora Financeira" in `site-header.tsx getPageTitle` is a route title (not a logo placeholder) and is intentionally kept.
-- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual browser check of the logo in the sidebar/auth pages and the mobile BrandMark swap still needed.
+## 2026-06-10 - US-004
+- Migrei `src/components/ui/select.tsx` do `<select>` nativo (com `appearance-none` + SVG inline) para o componente shadcn baseado em `@radix-ui/react-select`. Exporta `Select`, `SelectGroup`, `SelectValue`, `SelectTrigger`, `SelectContent`, `SelectLabel`, `SelectItem`, `SelectSeparator`, `SelectScrollUp/DownButton`. Trigger usa `bg-background text-foreground border-input ring-ring`, content/itens usam `bg-popover text-popover-foreground` e `font-sans` — todas as cores são tokens do tema (zero hex).
+- Adicionada dependência `@radix-ui/react-select@^2.3.0` em `package.json` (justificada para padronização visual — sem mais fundo azul nativo nem font diferente).
+- Migrei todos os 8 callers para o padrão Trigger/Content/Item:
+  - `src/features/historico/components/simulate-next-payment-card.tsx`
+  - `src/features/historico/components/payment-form-dialog.tsx` (2 fields, com FormField + ref/onBlur/name pelo SelectTrigger)
+  - `src/features/acompanhamento/pages/acompanhamento-novo-page.tsx`
+  - `src/features/acompanhamento/components/tracker-what-if-dialog.tsx` (2 selects — mês como string)
+  - `src/features/acompanhamento/components/tracker-spreadsheet.tsx` (selector de Modo por linha)
+  - `src/features/simulator/components/amortization-table.tsx`
+  - `src/features/simulator/components/rent-vs-buy-card.tsx` (unidade do horizonte)
+  - `src/features/simulator/components/financing-form.tsx` (sistema, agora via `Controller`)
+- Cobertura de testes mantida via novo mock reutilizável `src/tests/select-mock.tsx`: renderiza um `<select>` nativo a partir dos children declarativos (lê `SelectTrigger`/`SelectContent`/`SelectItem` por `displayName`). Aplicado em 5 test files (`financing-form`, `rent-vs-buy-card`, `amortization-table`, `tracker-spreadsheet`, `tracker-what-if-dialog`) com `vi.mock("@/components/ui/select", async () => (await import("@/tests/select-mock")).selectMock)`.
+- Atualizei `src/components/CLAUDE.md` (seção "Testing patterns") apontando o novo mock como o padrão canônico para Select em testes.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint .` exit 0 (apenas warnings de `react-refresh` no mock — não bloqueiam); `vitest run` → 82 test files, 779 testes, todos passam.
+- Browser verification: não há browser MCP neste sandbox — verificação visual manual (focus ring, scroll, dark mode) ainda recomendada.
 - **Learnings for future iterations:**
-  - The "logo placeholder" the PRD calls 'Simulador Financeiro' actually lived as `IconInnerShadowTop` + a "Calculadora Financeira" text span in `app-sidebar.tsx`, and a serif text span in `auth-layout.tsx`. Both are now brand components.
-  - `app-sidebar.test.tsx` queries the brand link by `getByRole("link", { name: /calculadora financeira/i })` — the BrandLogo/BrandMark `alt="Calculadora Financeira.app"` satisfies this regex, so the test stayed green without edits. Both imgs share that alt, so within the single sidebar link the accessible name is the alt repeated — still matches.
-  - In jsdom the Tailwind `hidden`/`md:block` classes don't apply (no CSS), so both BrandLogo and BrandMark are in the a11y tree during tests; query brand imgs by `src` (or `getAllByAltText`) to disambiguate when both are mounted.
-  - AuthLayout had no pre-existing test; added one. It renders under a `<Route element={<AuthLayout/>}>` parent with child routes for the `<Outlet/>`.
+  - O padrão shadcn Radix Select é incompatível com `register("nome")` do `react-hook-form` porque o trigger é um `<button>`, não um `<select>`. Use `<Controller>` (ou já dentro de `<FormField>` com `render={({field})=>...}`), passando `field.value` para `value` e `field.onChange` para `onValueChange`. Repasse `field.ref`/`field.onBlur`/`field.name` no `SelectTrigger` para preservar foco/blur/name nativos.
+  - O `id` do controle (para o `Label htmlFor`) vai no `SelectTrigger` (e não na raiz `Select`). Mesma coisa para `aria-label`/`aria-invalid`/`aria-describedby`/`className` — todos no Trigger.
+  - Valores precisam ser sempre **strings**. Em `tracker-what-if-dialog` o seletor de mês passou a `value={String(month)}` + `setMonth(Number(value))` no handler.
+  - Para jsdom, Radix Select quebra por causa de pointer-capture/portal. O novo `src/tests/select-mock.tsx` renderiza um `<select>` real a partir dos children — mantém `getByLabelText`/`select.options`/`fireEvent.change(...{target:{value}})` funcionando sem precisar tocar nas asserts existentes.
 ---
 
-## 2026-06-02 19:20 - US-005
-- Added `PUBLIC_APP_URL` to the typed `Env` and rewrote the verify/reset email links so they land on the existing SPA routes (`/verify-email?token=` and `/reset-password?token=`) instead of Better Auth's `/api/auth/*` endpoint (which falls through to the SPA 404).
-- `src/server/env.d.ts`: added required `PUBLIC_APP_URL: string` field to `Env`.
-- `wrangler.jsonc`: added `PUBLIC_APP_URL` to `vars` = `https://calculadorafinanceira.app` with a comment documenting the local-dev override (`.dev.vars` / `wrangler dev --var`).
-- `.env.example`: documented `PUBLIC_APP_URL=http://localhost:5173` for local dev.
-- `src/server/auth.ts`: added pure exported helpers `buildVerificationUrl(publicAppUrl, originalUrl)` and `buildResetUrl(publicAppUrl, originalUrl)` plus a non-throwing `getUrlParam` helper. They extract `token` (and preserve `callbackURL` for verify) via `new URL(...).searchParams`, trim a trailing slash from the base, and encode the token. `sendVerificationEmail` / `sendResetPassword` now pass `env.PUBLIC_APP_URL` through these helpers to the templates.
-- `src/server/auth.test.ts` (new): 9 tests covering verify+reset rewrites, callbackURL preservation/omission, trailing-slash trim, non-standard URL token extraction, and malformed-URL empty-token fallback. Follows the `googleSocialProvider` pattern — tests the pure helpers directly, never instantiating `betterAuth()` (which fires a background D1 init promise → unhandled rejections with a fake DB).
-- Because `PUBLIC_APP_URL` is a required `Env` field, every server test that builds a fake `Env` needed the field added: `auth-rate-limit-response`, `email`, `health`, `middleware/require-user`, `routes/payments|scenarios|tracker-entries|tracker-plans`, `scheduled`, `turnstile`.
-- Verified: `bun run typecheck` passes; `bun run lint` passes (0 errors, only the pre-existing react-refresh warning in site-header.tsx); full server suite green — 134 tests across 13 files (auth.test.ts 9/9).
-- **`wrangler deploy --dry-run` AC could NOT be run**: this environment has Node v20.20.2 but wrangler requires >= v22. The config change is a single valid `vars` entry (typecheck/lint cover the rest). NOK only due to the environment Node version — needs to be confirmed in CI where Node 22 is present.
+## 2026-06-10 - US-003
+- Adicionada faixa horizontal de contraste atrás da `BrandLogo` (wordmark branco) usando o token `bg-primary` do tema, garantindo legibilidade tanto em light quanto dark mode.
+- Files changed:
+  - `src/components/brand/brand-logo.tsx` — wordmark `<img>` agora é renderizado dentro de um `<span>` com `bg-primary inline-flex items-center justify-center rounded-md px-3 py-2`; nova prop `containerClassName` permite que o caller customize/desligue a faixa sem mexer no componente. Doc-comment explica a motivação (texto branco sobre fundo creme do light mode).
+  - `src/components/brand/brand-logo.test.tsx` — dois novos casos cobrindo (a) a faixa usa `bg-primary` (sem cor hardcoded) e (b) `containerClassName` é mesclado por cima de `bg-primary`.
+  - `src/components/app-sidebar.tsx` — sidebar agora usa `containerClassName="hidden md:inline-flex"` para esconder a faixa em mobile (o `BrandMark` compacto cobre esse caso), evitando faixa vermelha de altura zero no mobile.
+- Locais que automaticamente herdam a faixa via os usos existentes de `<BrandLogo />`: `src/app/auth-layout.tsx`, `src/features/landing/pages/landing-page.tsx`, `src/features/landing/pages/privacidade-page.tsx`. Todos exibem a faixa sobre fundos claros (`bg-background`).
+- Quality checks: typecheck (`tsc -b --noEmit`) exit 0; eslint nos arquivos editados exit 0; vitest local em `brand-logo.test.tsx`, `auth-layout.test.tsx`, `app-sidebar.test.tsx` → 11 testes passam.
+- Browser verification: não há browser MCP neste sandbox — verificação visual manual da faixa em light/dark ainda recomendada (Landing, AuthLayout, Privacidade, Sidebar desktop).
 - **Learnings for future iterations:**
-  - `Env` (`src/server/env.d.ts`) is a REQUIRED-fields interface. Adding any new required field forces updating EVERY `baseEnv()`/fake-`Env` helper across `src/server/**/*.test.ts` or typecheck fails. Grep for `BETTER_AUTH_URL:` to find them all — they sit next to it.
-  - Server auth helpers are deliberately pure + exported so they can be unit-tested WITHOUT calling `betterAuth()` (which starts a background D1 init promise that rejects under a fake DB). Follow this pattern for any new auth logic — see `googleSocialProvider`, `buildVerificationUrl`, `buildResetUrl`.
-  - `wrangler` CLI needs Node >= 22; the local sandbox runs Node 20, so `wrangler deploy --dry-run` ACs can't be executed here — note as a CI-only check.
-  - US-007 will refactor the email templates and needs `publicAppUrl` threaded into `verifyEmailTemplate`/`resetPasswordTemplate`; the callers in `auth.ts` already build the final action URL via these helpers, so US-007 should pass `env.PUBLIC_APP_URL` as the separate `publicAppUrl` template input (for the logo/footer links), distinct from the action `url`.
+  - O wordmark `/brand/logo-nome.svg` é texto branco — qualquer surface clara precisa de uma faixa de contraste. Centralizar isso no próprio `BrandLogo` (em vez de cada caller) é o caminho: novos callers herdam o contraste correto de graça.
+  - Quando um caller precisa esconder a faixa (ex.: o BrandMark compacto já cobrir mobile), use `containerClassName="hidden ..."` em vez de re-introduzir uma prop "noStrip" ou copiar o `<img>` solto.
+  - Para visual regressions futuras na marca, os 4 testes em `brand-logo.test.tsx` já cobrem: src/alt do `<img>`, sizing via `className`, presença de `bg-primary` na faixa e merge de `containerClassName`.
 ---
 
-## 2026-06-02 19:24 - US-006
-- After e-mail verification, `verify-email-page.tsx` now redirects to `/login?verified=1` (kept `REDIRECT_DELAY_MS` + `replace: true`).
-- `login-page.tsx`: reads `searchParams.get("verified") === "1"` into `showVerifiedBanner` state; renders a success banner (`role="status"`, `aria-live="polite"`, `text-emerald-600 dark:text-emerald-400`) with text "Seu e-mail foi verificado. Entre com seu acesso." just above the `<Form>` (above GoogleSignInButton). Banner auto-dismisses after 8s (useEffect setTimeout cleared on unmount) OR when the form is submitted (`setShowVerifiedBanner(false)` in `onSubmit`).
-- Files changed: `src/features/auth/pages/verify-email-page.tsx`, `src/features/auth/pages/login-page.tsx`, `src/features/auth/pages/login-page.test.tsx`, `src/features/auth/pages/verify-email-page.test.tsx`.
-- Tests: added 2 login-page tests (banner with `?verified=1`, no banner without param); updated the verify-email success test to assert the redirect carries `verified=1` (added a `LoginRouteStub` reading `useSearchParams`). login (15) + verify (7) green; typecheck + lint clean (only pre-existing site-header react-refresh warning).
-- Browser verification: NO browser MCP tooling available here — manual check of the emerald banner + 8s auto-dismiss still needed (AC "Verify in browser" deferred).
+## 2026-06-10 - US-005
+- Verificação de cobertura: todos os usos de `Select`/`<select>` no app já apontam para o componente padronizado `@/components/ui/select` (introduzido em US-004). Não houve alteração de código de produção nesta story — apenas validação e marcação de `passes: true`.
+- Auditoria realizada:
+  - `grep "<select[\\s>]"` em `src/` → 0 ocorrências (nenhum `<select>` nativo).
+  - `grep "<option"` em `src/` → 0 ocorrências.
+  - `grep "appearance-none"` em `src/` → 0 (não restou o estilo do select nativo antigo).
+  - `grep "ui/select"` em `src/` → 8 callers em features + 5 test files com o mock, todos pelo caminho padronizado: `simulate-next-payment-card`, `payment-form-dialog`, `acompanhamento-novo-page`, `tracker-what-if-dialog`, `tracker-spreadsheet` (seletor de Modo por linha), `amortization-table`, `rent-vs-buy-card`, `financing-form`.
+  - `grep "SelectHTMLAttributes"` em `src/` → 1 ocorrência apenas em `src/tests/select-mock.tsx` (intencional — o mock de teste expõe um `<select>` nativo para jsdom).
+  - `scenario-combobox.tsx` é um combobox construído sobre `DropdownMenu` shadcn (não um `Select` nativo) e já usa tokens do tema — fora do escopo desta story.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src` exit 0 (apenas warnings de `react-refresh/only-export-components` em `site-header.tsx` e `select-mock.tsx`, sem erros); `vitest run` → 82 test files, 779 testes, todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (focus ring no Trigger, dark mode no Content, comportamento do Modo por linha no tracker-spreadsheet).
+- Files changed: nenhum arquivo de produção. Apenas `scripts/ralph/prd.json` (passes:true) e este `progress.txt`.
 - **Learnings for future iterations:**
-  - Banner pattern mirrors the existing `?flash=` message (same emerald classes + `aria-live`); both live above the form. Re-use this convention for any new auth status banners.
-  - In React Router tests, route matching ignores query strings, so a `/login` route element renders for `/login?verified=1` too. To assert the query actually arrived, render a stub that reads `useSearchParams()` (see `LoginRouteStub`) instead of a plain `<div>`.
+  - US-004 ja cumpriu o trabalho material do US-005 ao migrar os 8 callers do Select de uma só vez. Stories de "padronizar tudo" tendem a ser absorvidas naturalmente por uma story upstream bem feita; verificar primeiro com `grep` antes de presumir trabalho pendente.
+  - Pra auditar "nenhum dropdown nativo restante", os greps que dão certeza são: `<select[\s>]`, `<option`, `appearance-none` e `SelectHTMLAttributes`. Se todos voltarem vazios (exceto o test mock), AC#3 está satisfeita.
+  - Combobox-like (`scenario-combobox.tsx`) construído sobre `DropdownMenu` é OK — usa tokens do tema. Não confundir com o "Select" do AC, que é especificamente sobre o componente `@/components/ui/select` e `<select>` nativo.
 ---
 
-## 2026-06-02 19:40 - US-007
-- Refactored `src/server/email-templates.ts` around a shared exported `renderBrandedEmail({ heading, intro, ctaLabel, ctaUrl, closing, publicAppUrl })` helper that emits brand-styled HTML (CSS exclusively inline, no `<style>` block) + a plain-text variant. `verifyEmailTemplate`/`resetPasswordTemplate` now delegate to it and take an extra `publicAppUrl` input; subjects, personalized greeting, and the verify/reset warnings are preserved.
-- HTML layout: body bg `#F7EFE2`, centered `max-width:600px` container, white card `border-radius:12px` `padding:32px` `border-top:4px solid #B94F45`, brand-red CTA button (`#B94F45` / white, `14px 24px`, `border-radius:8px`), textual fallback link, footer in `#7A7A7A` with `© {year} Calculadora Financeira.app · calculadorafinanceira.app`. Font stack `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` (single-quoted inner names so it survives the double-quoted style attribute).
-- Generated `public/brand/email-logo.png` (480×118, transparent RGBA) by exporting `public/brand/logo-nome.svg` with ImageMagick `convert -background none -density 300 -resize 480x120`. No placeholder needed — real export succeeded.
-- Updated callers in `src/server/auth.ts` to pass `publicAppUrl: env.PUBLIC_APP_URL` to both templates (distinct from the already-rewritten action `url`).
-- Added `src/server/email-templates.test.ts` (6 tests): verify+reset HTML contain `/brand/email-logo.png`, `#B94F45`, and the action url; greeting + warnings preserved; escapeHtml applied to hostile url (`"><script>`) and name (with quotes); text variants contain the raw url + branded signature; renderBrandedEmail trims a trailing slash from publicAppUrl and emits no `<style>` block.
-- Files changed: `public/brand/email-logo.png` (new), `src/server/email-templates.ts`, `src/server/email-templates.test.ts` (new), `src/server/auth.ts`.
-- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); full suite green — 767 tests / 80 files.
-- **DESIGN NOTE / potential follow-up (NOK risk):** `logo-nome.svg` is a *white* wordmark (`fill="white"` / `#F2F2F7`, only `.app` is brick-red), designed for dark backgrounds. On a plain white email card it would be nearly invisible, so the logo is placed on a brand-red (`#B94F45`) rounded header band inside the white card. This keeps it legible and looks intentional, but if a light-background logo variant is later produced, swap the band for a plain header. Email rendering itself was NOT verified in a real client (no email/browser tooling here).
+## 2026-06-10 - US-006
+- Adicionada migração D1 `migrations/0006_unify_financing_to_tracker.sql` que copia os dados do modelo legado (`financing_scenarios` + `payment_history`) para o modelo canônico (`tracker_plans` + `tracker_entries`), sem dropar as tabelas antigas (rollback seguro / cleanup vai acontecer no US-020).
+- Mapeamento aplicado:
+  - `financing_scenarios.annual_rate_basis_points` -> `tracker_plans.annual_rate_bp` (mesma unidade, sem conversão — preserva basis points).
+  - `name` nullable -> `COALESCE("name", 'Financiamento')` (tracker exige NOT NULL).
+  - `modality` default `'PRICE'` (legado não persistia SAC).
+  - `target_monthly_total_cents` placeholder: `(property_value_cents - down_payment_cents) / term_months`. Evita `POW` por portabilidade D1/SQLite. Usuário ajusta no UI novo.
+  - `created_at` -> `created_at` e `updated_at` (legado não tinha updated_at).
+  - Pagamentos: `amortization_strategy = 'prazo'` -> `apply_mode = 'reduce_term'`; `'parcela'` -> `'reduce_installment'`. `payment_type` ('parcela'/'amortizacao_extra'/'misto') não é mapeado — não tem equivalente no tracker (o tipo é inferido pela diferença vs parcela prevista).
+  - `month_index` derivado de `reference_month` (YYYY-MM) - `start_date` (YYYY-MM-DD) via aritmética `substr`/`cast`: `((ref_year - start_year) * 12 + (ref_month - start_month)) + 1` (1-based; pagamento no mês do start_date == 1).
+  - IDs reutilizados (same uuid), com `INSERT OR IGNORE` para evitar colidir com planos/entries que o usuário já criou no tracker. Duplicatas de payment_history em (scenario, reference_month) ficam preservadas no legado mas só uma entra no tracker (UNIQUE(plan_id, month_index)).
+  - Cenários `archived_at IS NOT NULL` são pulados (arquivados não devem aparecer no novo "Meus Financiamentos").
+- Files changed:
+  - `migrations/0006_unify_financing_to_tracker.sql` (novo)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint .` exit 0 (apenas warnings react-refresh pré-existentes); `vitest run` -> 82 test files, 779 testes, todos passam.
+- Verificação `bun run db:migrate:local`: NÃO foi possível executar neste sandbox — Wrangler exige Node 22+ (temos v20.20.2) e não há `sqlite3` CLI/`better-sqlite3` compilado. Migração foi revisada manualmente (sintaxe SQLite/D1 compatível, sem POW/funções não portáveis). Verificação manual com `wrangler d1 migrations apply --local` ainda recomendada antes do deploy.
 - **Learnings for future iterations:**
-  - ImageMagick `convert` IS available in this sandbox (`/usr/bin/convert`); `rsvg-convert`/`inkscape`/`magick` are not. Use `convert -background none -density 300 -resize WxH in.svg out.png` to rasterize brand SVGs.
-  - The brand wordmark (`logo-nome.svg`) is white-on-transparent → never place it directly on white/cream; back it with a dark or brand-colored fill.
-  - Email HTML must keep all CSS inline (no `<style>`) and use single-quoted font names inside the double-quoted `style="..."` attribute, e.g. `'Segoe UI'`, or the attribute breaks.
-  - `renderBrandedEmail` escapes ALL caller strings itself — callers must pass RAW `name`/`url` (the greeting builds the raw name); do not pre-escape or you double-encode.
+  - `financing_scenarios` NÃO tem coluna `modality` — a migração assume PRICE para todo cenário legado. Caso o usuário tivesse usado SAC no simulador (apenas em runtime), o dado não está persistido — não há como recuperar do banco antigo.
+  - O nome da tabela legada de pagamentos é `payment_history` (não `scenario_payments` como o PRD diz). Sempre conferir o schema real em `migrations/0002_domain.sql` antes de escrever SQL de migração.
+  - SQLite/D1 NÃO tem `POW`/`POWER` portável por padrão. Para calcular parcela PRICE em SQL, fazer em aplicação (JS/Decimal.js) e armazenar; o SQL puro deve usar placeholders aritméticos simples.
+  - `tracker_entries` tem `UNIQUE(plan_id, month_index)` — qualquer INSERT em massa por (plan, month) precisa de `INSERT OR IGNORE` (ou OR REPLACE) para não falhar a migração inteira por causa de duplicatas legadas.
+  - O `INSERT OR IGNORE` em massa SQLite aceita `select ... from ...` (não exige VALUES). Útil para migrações de dados.
+  - Para converter `reference_month` (YYYY-MM) em `month_index` 1-based a partir de `start_date` (YYYY-MM-DD): `((cast(substr(ref,1,4) as int) - cast(substr(start,1,4) as int)) * 12 + (cast(substr(ref,6,2) as int) - cast(substr(start,6,2) as int))) + 1`.
 ---
 
-## 2026-06-02 19:48 - US-008
-- Created the public LandingPage and made the root route `/` session-sensitive (anonymous → landing, authenticated → /financiamento redirect). Most code was already staged uncommitted on the branch from a prior pass; this iteration validated it against every AC, ran quality checks, and committed it.
-- `src/features/landing/pages/landing-page.tsx`: `LandingPage` — mobile-first Tailwind + shadcn `<Button asChild>`. Public header (`<BrandLogo>` left; ghost "Entrar" → /login + primary "Criar conta" → /register right). Hero `<h1 class="text-4xl md:text-6xl font-bold">` "Decisões financeiras com clareza" + muted subtitle; primary CTA `size="lg"` → /financiamento, secondary `variant="outline"` → /login. Motivation paragraph (≤3 frases). Footer `© {new Date().getFullYear()} Calculadora Financeira.app` + Entrar link. Brand palette: body `bg-[#F7EFE2]` (creme), CTAs `bg-[#B94F45]` (vermelho-tijolo).
-- `src/app/routes.tsx`: replaced `<Navigate to="/financiamento" />` at `/` with a `RootRoute` wrapper that calls `useSession()` — `isPending → null` (no flicker), `user → <Navigate to="/financiamento" replace />`, else `<LandingPage />`.
-- `src/features/landing/pages/landing-page.test.tsx` (5 tests): hero h1, both CTA hrefs, motivation block, footer year + Entrar link.
-- `src/app/App.test.tsx`: replaced the old "redirects root to /financiamento" test with two — anonymous visitor at `/` sees the LandingPage hero + "Começar a simular" CTA; authenticated user at `/` lands on the FinanciamentoPage (Navigate replace). Uses the existing `setSession()` helper that mocks `@/lib/queries/session`.
-- Files changed: `src/features/landing/pages/landing-page.tsx` (new), `src/features/landing/pages/landing-page.test.tsx` (new), `src/app/routes.tsx`, `src/app/App.test.tsx`.
-- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); `bun run test -- src/features/landing src/app/App.test.tsx` → 14/14 green (landing 5, App routing 9).
-- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual browser check of the landing hero/CTAs/palette and the authenticated redirect still needed (deferred to US-010 smoke / manual).
+## 2026-06-10 - US-007
+- Marcado explicitamente o "recurso unificado" no servidor e no cliente, sem mexer em comportamento:
+  - `src/server/routes/tracker-plans.ts` e `src/server/routes/tracker-entries.ts` ganharam doc-comment de cabeçalho declarando-os como o roteador canônico de "Meus Financiamentos" (US-007), operando sobre `tracker_plans`/`tracker_entries`.
+  - `src/server/routes/scenarios.ts` e `src/server/routes/payments.ts` ganharam doc-comment de cabeçalho marcando-os como shims legados sobre as tabelas deprecadas (`financing_scenarios`/`payment_history`), com remoção física agendada para US-020.
+  - `src/lib/api-client.ts`: novo cabeçalho descrevendo o layout pós-US-007 + divisores `// Legacy shims ...` (acima do bloco scenarios+payments) e `// Unified "Meus Financiamentos" resource ...` (acima do bloco tracker plans+entries).
+- Novo teste de integração `src/server/routes/financings.test.ts` que monta os dois routers do recurso unificado num mesmo `Hono` (mesma ordem do `src/server/index.ts`) e exerce o fluxo canônico em uma só passada: create plan -> list -> upsert entry (duas vezes, validando ON CONFLICT) -> read detail -> delete entry -> delete plan -> list vazio. Um segundo teste cobre o cascade do DELETE do plano sobre as entries.
+- Files changed:
+  - `src/server/routes/scenarios.ts`, `src/server/routes/payments.ts` (header doc apenas)
+  - `src/server/routes/tracker-plans.ts`, `src/server/routes/tracker-entries.ts` (header doc apenas)
+  - `src/lib/api-client.ts` (cabeçalho + divisores de seção; sem mudança de assinatura)
+  - `src/server/routes/financings.test.ts` (novo)
+- Decisão sobre o AC #3 ("rotas antigas redirecionam OU permanecem como shim"): permanecem como shim funcional sobre as tabelas legadas. Redirecionar com HTTP 308 não é possível sem perda — os shapes (`ScenarioApi` vs `TrackerPlanApi`) são incompatíveis, então qualquer redirect quebraria os clientes durante a transição. Os shims ficam até US-020.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos 6 arquivos editados/novos exit 0; `vitest run` (suite completa) -> 83 test files, 781 testes, todos passam (5 arquivos de servidor: payments 25, scenarios 28, tracker-entries 17, financings 2 novos, tracker-plans 20 = 92 testes só nesse subset).
 - **Learnings for future iterations:**
-  - The root route is now `RootRoute` (not a bare `<Navigate>`). Any test that exercises `/` must mock `useSession` via the existing `setSession({ data, isPending })` helper in `App.test.tsx` (it maps `data.user`/`data.session` onto the `useSession` shape). `isPending: true` at `/` renders nothing.
-  - `useSession()` returns the flat `{ user, session, isPending, isError }` shape — `RootRoute` reads `user`/`isPending` directly (no `.data` indirection).
-  - US-009 will add `<Link to="/privacidade">Privacidade</Link>` to this footer (next to the Entrar link) and a public `/privacidade` route outside the AppShell — landing-page.test.tsx footer assertions will need the new link.
+  - "Recurso unificado" no PRD = `/api/tracker/plans` + `/api/tracker/plans/:id/entries`. Não há (nem precisa haver) um path `/api/financings/*` separado — o nome "financings" é só semântico/UX ("Meus Financiamentos"); o protocolo continua sob `/api/tracker/plans`.
+  - Antes de adicionar novas rotas/funções do api-client para US futuros (US-009..US-014), reutilize as existentes (`listTrackerPlans`, `getTrackerPlan` retorna `{plan, entries}`, `upsertTrackerEntry`, `deleteTrackerEntry`, etc.). O bloco está demarcado por `// Unified "Meus Financiamentos" resource` em `src/lib/api-client.ts`.
+  - Ao montar testes de integração que combinem `tracker-plans` + `tracker-entries`, registre o nested entries router PRIMEIRO (mais específico) e o plans depois — espelha exatamente a ordem em `src/server/index.ts`. Inverter a ordem faz o `/:id` do plans capturar `:id/entries` antes.
+  - O DELETE de plan no fake-D1 destes testes precisa simular o `ON DELETE CASCADE` removendo manualmente as entries (`for i in entries: if e.plan_id === id splice`). O DB real cuida disso via FK, mas os testes não.
+  - O `getTrackerPlan(id)` retorna `TrackerPlanDetail = { plan, entries }` — útil quando a UI quiser KPIs/charts (US-009/US-010) sem requests paralelos.
 ---
 
-## 2026-06-02 19:51 - US-009
-- Added a public `/privacidade` placeholder route and a footer link to it on the LandingPage.
-- `src/features/landing/pages/privacidade-page.tsx` (new): `PrivacidadePage` — BrandLogo (wrapped in `<Link to="/">`) at top, `<h1>` "Política de privacidade", placeholder paragraph, "Voltar para o início" → /. A `useEffect` appends `<meta name="robots" content="noindex">` to `document.head` on mount and removes it on unmount. Reuses the landing's brand palette (`bg-[#F7EFE2]`, `#B94F45` accent link).
-- `src/app/routes.tsx`: added `<Route path="/privacidade" element={<PrivacidadePage />} />` as a public route OUTSIDE both AuthLayout and AppShell (sits right after the `/` RootRoute).
-- `src/features/landing/pages/landing-page.tsx`: footer now wraps the "Entrar" link in a `<nav>` and adds a discreet `<Link to="/privacidade">Privacidade</Link>` (same `text-sm text-muted-foreground` footer styling).
-- `src/features/landing/pages/landing-page.test.tsx`: added a test asserting the footer has a Privacidade link with `href="/privacidade"`.
-- `src/features/landing/pages/privacidade-page.test.tsx` (new): asserts title + placeholder paragraph render, the back link points to `/`, and the robots noindex meta is inserted on mount and removed on unmount.
-- Files changed: `src/features/landing/pages/privacidade-page.tsx` (new), `src/features/landing/pages/privacidade-page.test.tsx` (new), `src/app/routes.tsx`, `src/features/landing/pages/landing-page.tsx`, `src/features/landing/pages/landing-page.test.tsx`.
-- Verified: `bun run typecheck` clean; `bun run lint` clean (only the pre-existing site-header react-refresh warning); `bun run test -- src/features/landing` → 9/9 green (landing 6, privacidade 3); `bun run test -- src/app/App.test.tsx` → 9/9 still green (routes.tsx change didn't regress routing).
-- Browser verification: NO browser/dev-browser MCP tooling in this environment — manual check of the /privacidade page render + noindex meta + footer link still needed (deferred to US-010 smoke / manual).
+## 2026-06-10 - US-008
+- Scaffold da nova aba "Meus Financiamentos" no SPA: rotas protegidas, redirects das paths legadas, sidebar unificada, e título do header consolidado.
+- Files changed:
+  - `src/app/routes.tsx` — adiciona rotas protegidas `/meus-financiamentos`, `/meus-financiamentos/novo`, `/meus-financiamentos/:id` (reusando `AcompanhamentoPage`, `AcompanhamentoNovoPage`, `AcompanhamentoDetailPage`). Adiciona redirects `/historico` → `/meus-financiamentos`, `/historico/:scenarioId` → `/meus-financiamentos/:id`, `/acompanhamento` → `/meus-financiamentos`, `/acompanhamento/novo` → `/meus-financiamentos/novo`, `/acompanhamento/:id` → `/meus-financiamentos/:id`. Os redirects param-aware passam por um pequeno helper `LegacyFinancingDetailRedirect` que lê `useParams()` e monta o destino. Imports de `HistoricoPage`/`HistoricoDetalhePage` foram removidos do arquivo (as páginas continuam no repo até a limpeza física no US-020).
+  - `src/components/app-sidebar.tsx` — substitui os dois itens antigos ("Histórico" + "Acompanhamento") por um único "Meus Financiamentos" (`IconReceipt2`, url `/meus-financiamentos`). Tokens e mobile collapse intocados.
+  - `src/components/site-header.tsx` — `getPageTitle` agora mapeia `/meus-financiamentos`, `/historico` e `/acompanhamento` (todas as variações) para "Meus Financiamentos". O `useMatch("/historico/:scenarioId")` para o `ScenarioCombobox` permanece — em produção a rota redireciona antes, e nos unit tests do header ela é exercida diretamente.
+  - `src/app/App.test.tsx` — testes de `/historico` (auth modal, loading state, conteúdo autenticado) realocados para `/meus-financiamentos`; expectativa de heading muda de "Seus financiamentos" para "Seus planos de acompanhamento" (vem da `AcompanhamentoPage`). Adicionados 2 testes garantindo que `/historico` e `/acompanhamento` legados ainda mostram o auth modal (via redirect).
+  - `src/components/app-sidebar.test.tsx` — espera "Meus Financiamentos" no lugar de "Histórico"/"Acompanhamento"; novo teste de href `/meus-financiamentos`; novo teste negativo para os rótulos antigos.
+  - `src/components/site-header.test.tsx` — tabela do `getPageTitle.each` atualizada com as novas paths e mapeamento consolidado; render-test de heading em `/meus-financiamentos` e em `/historico` legado.
+- Decisão de escopo: NÃO reescrevi as navegações internas de `AcompanhamentoPage`, `AcompanhamentoNovoPage` e `AcompanhamentoDetailPage` (que ainda usam `/acompanhamento/*`) nem as do `historico/*` — os redirects cuidam disso transparente; bulk-rewrite vai com a limpeza do US-020.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos 6 arquivos editados exit 0 (apenas o warning pré-existente de `react-refresh` em `site-header.tsx`); `vitest run` (suite completa) → 83 test files, 789 testes, todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (clique no sidebar, redirect de `/historico` → `/meus-financiamentos`, comportamento do "Novo plano" e detalhe).
 - **Learnings for future iterations:**
-  - Public routes (no auth chrome) go directly under `<Routes>` in `routes.tsx`, as siblings of `/` — NOT inside the `<Route element={<AuthLayout/>}>` or `<Route element={<AppShell/>}>` wrappers. `/privacidade` follows this pattern.
-  - The `document.head` meta-injection pattern (create element → appendChild in useEffect → removeChild in cleanup) is testable in jsdom: query `document.head.querySelector('meta[name="robots"]')` after render and after `unmount()`.
-  - US-010 is the final story: a full manual smoke (signup→verify→login→reset→branding) that can't be fully automated here (no browser/email tooling, wrangler needs Node 22). It is primarily a verification/checklist story.
+  - Redirect de rota com parâmetro no React Router v6 não tem syntax de "rewrite" embutida — use um pequeno componente `Navigate to={\`/.../${useParams().id}\`} replace />`. `<Navigate to="..." />` só funciona pra paths estáticas.
+  - Quando uma rota legada redireciona, NÃO precisa atualizar as 32 navegações internas espalhadas pelo app no mesmo PR — o redirect já cobre tudo, e o `replace` evita acumular histórico. Bulk-rewrite vira escopo do PR de cleanup (US-020).
+  - Tests com MemoryRouter + `<Navigate replace>`: a navegação resolve durante o render inicial dentro do `act()` do testing-library, então `renderAt("/historico")` já mostra o conteúdo de `/meus-financiamentos`. Pode asserir contra o componente final direto.
+  - A heading semantics do AcompanhamentoPage é `Seus planos de acompanhamento` (CardTitle, level 3). HistoricoPage era `Seus financiamentos`. Ao mover testes que assertam por heading, lembre de atualizar o regex.
+  - `IconReceipt2` (Tabler) é uma boa escolha visual pra "Meus Financiamentos" — mistura de recibo + linha, evoca "pagamentos". Tem em `@tabler/icons-react` (CJS export verificado).
 ---
 
-## 2026-06-02 20:03 - US-010
-- Final end-to-end smoke / verification story for the auth-fix + landing + branding branch. Validated the full signup→verify→login→reset→branding wiring at the code level and ran every automated quality gate this environment supports.
-- Automated gates (ALL GREEN): `bun run typecheck` clean; `bun run lint` clean (0 errors, only the pre-existing site-header react-refresh warning); `bun run test` → **777 tests / 82 files all passing**.
-- Code-level confirmation of each smoke step (grep-verified, no code changes needed):
-  - **Landing (anon /):** `landing-page.tsx` renders hero "Decisões financeiras com clareza" + "Começar a simular" CTA; brand palette (`bg-[#F7EFE2]` creme, `#B94F45` CTAs); footer with Entrar + Privacidade links. `RootRoute` in `routes.tsx` gates `/` on `useSession()`.
-  - **AuthLayout branding:** BrandLogo centered above `<Outlet/>` (US-004) — covered by `auth-layout.test.tsx`.
-  - **Verify email URL:** `auth.ts` `buildVerificationUrl` emits `${PUBLIC_APP_URL}/verify-email?token=...` (preserves callbackURL); `buildResetUrl` emits `${PUBLIC_APP_URL}/reset-password?token=...`.
-  - **Email branding:** `email-templates.ts` renders `<img src="${appUrl}/brand/email-logo.png" width="240" height="60">` and `#B94F45` CTA via `renderBrandedEmail`; covered by `email-templates.test.ts` (6 tests).
-  - **Verify → login redirect:** `verify-email-page.tsx` navigates to `/login?verified=1` (replace); `login-page.tsx` shows the `role="status"` emerald banner "Seu e-mail foi verificado. Entre com seu acesso." — covered by login/verify page tests.
-  - **Favicon/metadata:** `index.html` favicon + apple-touch-icon `/brand/icon.svg`, `theme-color #B94F45`.
-  - **Responsive AppShell:** `app-sidebar.tsx` shows BrandLogo (`hidden md:block`) / BrandMark (`md:hidden`).
-  - **Privacidade:** public `/privacidade` route + noindex meta (US-009).
-- Files changed: none (verification-only story); `scripts/ralph/prd.json` (passes flag) + this log.
-- **DEFERRED / environment-blocked ACs (NOK here, must be confirmed manually or in CI):**
-  - Live browser walkthrough (anon landing render, register page logo, /verify-email redirect timing, login banner visibility, reset form, mobile BrandMark swap, favicon in tab): **no browser/dev-browser MCP is configured in this sandbox** — cannot automate. All corresponding behaviors are unit-tested.
-  - Capturing the actual sent email HTML via Resend dev console / `sendVerificationEmail` interception: **no email tooling here** — template HTML is instead asserted by `email-templates.test.ts`.
-  - `bunx wrangler deploy --dry-run`: **wrangler needs Node ≥22; sandbox runs Node v20.20.2** — defer to CI.
+## 2026-06-10 - US-009
+- Expandi os KPIs da nova aba "Meus Financiamentos" de 4 para os 6 exigidos pelo PRD: `% já pago`, `Saldo devedor`, `Parcelas restantes`, `Juros pagos até agora`, `Economia vs cronograma original`, `Prazo reduzido`. Mantive a derivação a partir de `TrackerCurves` (que vem de `core/finance/tracker/{normal,realized,goal}Schedule` via `buildCurves`), respeitando a regra de não calcular dentro do componente.
+- Adicionei ícones (lucide) por cartão (`PercentIcon`, `WalletIcon`, `CalendarClockIcon`, `ReceiptTextIcon`, `PiggyBankIcon`, `TimerResetIcon`) para alinhar visualmente com o estilo de `buildScenarioDetailKpis`.
+- `% já pago` é calculado como `(principal - saldoDevedor) / principal * 100` em Decimal.js, clampado em `[0, 100]`; quando `principal == 0` retorna 100% (proteção). Formatação via `formatPercentage(value, 1)` → 1 casa.
+- `Parcelas restantes` = `realized.months.length - lastEntryMonth`, clampado em 0 (vai a zero quando o saldo zera).
+- O estado vazio (`hasEntries === false`) agora retorna 6 placeholders, todos com `value: "—"` + `hint: "Registre lançamentos para acompanhar o progresso."` (já era a redação anterior) e o `icon` correspondente — atende AC#3 sem regredir layout.
+- Files changed:
+  - `src/features/acompanhamento/lib/build-tracker-kpis.ts` (expandido p/ 6 KPIs + ícones + percentual)
+  - `src/features/acompanhamento/lib/build-tracker-kpis.test.ts` (novo — 4 casos: empty state, KPIs calculados, trends em pagamento extra, clamp em quitação total)
+  - `src/features/acompanhamento/pages/acompanhamento-detail-page.test.tsx` (test ids renomeados para os 6 KPIs novos; conta as 6 instâncias da hint no estado vazio)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos 3 arquivos editados/novos exit 0; `vitest run` (suite inteira) → 84 test files, 793 testes, todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (carregar `/meus-financiamentos/:id` sem entries vs com entries, observar grid responsivo de 6 cartões em light e dark).
 - **Learnings for future iterations:**
-  - This branch's full feature set (auth-fix, landing, branding) is complete and green on all in-sandbox checks. The only unverified items are the inherently-manual browser/email walkthroughs and the Node-22 wrangler dry-run, all of which CI (Node 22) + a human smoke pass will cover.
-  - Full `bun run test` here takes ~9 min wall-clock (heavy vitest setup/collect ~340s+528s); scope to specific paths when iterating, run the full suite only for final story sign-off.
+  - O slug do `SectionCards` é gerado por NFD-strip-diacritics + `[^a-z0-9]+→-` + trim de `-`. Caracteres especiais (`%`, espaço, acento) viram um único `-` no testId. Ex.: `"% já pago"` → testId `kpi-card-ja-pago-value`. Útil saber ao escrever asserções para títulos com símbolos.
+  - O grid do `SectionCards` é `grid-cols-1 @xl/main:grid-cols-2 @5xl/main:grid-cols-4` — quando o array tem 6 itens, a UI quebra em 4+2 no breakpoint 5xl. Não há suporte explícito a 3-col, mas com 6 cards isso funciona visualmente (2 linhas no @xl, 2 linhas desbalanceadas no @5xl).
+  - "% já pago" como derivação do `principal - currentBalance` em Decimal precisa do `Decimal.min(..., 100)` para evitar 100.0001% em meses de quitação (interest + amortization arredondam pra cima). Sem o clamp, exibiria `"100,1%"`.
+  - O `buildTrackerKpis` testar vs `buildCurves` real (em vez de um stub) detecta regressões nos engines de schedule mais cedo — `buildCurves` é barato (in-memory, sem I/O). Mantido o padrão para futuros KPI builders dependentes de schedule.
+  - Quando renomear títulos de KPI em `build-tracker-kpis`, atualize os testIds em `acompanhamento-detail-page.test.tsx` na mesma PR — o slug muda junto e os getByTestId quebram em silêncio (mensagem clara, mas só na rodada).
+---
+
+## 2026-06-10 - US-010
+- Story essentially já estava materialmente implementada como side-effect do US-008/US-009: o componente `TrackerCurvesChart` (`src/features/acompanhamento/components/tracker-curves-chart.tsx`) é renderizado em `AcompanhamentoDetailPage` (linha 158), que é o componente exibido em `/meus-financiamentos/:id`. O builder de dados (`src/features/acompanhamento/lib/build-tracker-chart-views.ts`) já reusa `buildCurves` e já mapeia cada série para um token `--chart-N` do tema (Realizado=`var(--chart-1)`, Normal/Previsto=`var(--chart-3)`, Meta=`var(--chart-2)`).
+- Verificações realizadas para confirmar cada AC:
+  - AC#1 "Previsto x Real reaproveitando build-curves": `TrackerCurvesChart` consome o `curves` memoizado de `useMemo(() => buildCurves(plan, entries))` na página, e `buildTrackerChartViews` emite duas `ChartView`s ("balance" + "interest") com séries Realizado (Real) e Normal (Previsto, cronograma original).
+  - AC#2 "tokens --chart-1..--chart-5": confirmados todos os 5 tokens em `src/index.css` (linhas 25-29 light, 80-84 dark, 133-137 expostos via @theme). As 3 cores usadas pelo chart caem em `--chart-1`, `--chart-2`, `--chart-3`.
+  - AC#3 "reflete os lançamentos ao carregar": `buildCurves(plan, entries)` recebe `detail.entries` direto do `useTrackerPlan` (carregado na mount); não há ação do usuário envolvida.
+- Single test-only change: adicionado um regression guard em `acompanhamento-detail-page.test.tsx` ("renders the Previsto x Real chart wired with the loaded detail") que asserta a presença do `data-testid="tracker-curves-chart"` quando o detail carrega com entries. Isso impede que uma futura remoção acidental do `<TrackerCurvesChart>` da página passe despercebida.
+- Files changed:
+  - `src/features/acompanhamento/pages/acompanhamento-detail-page.test.tsx` (1 novo `it` block)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` no arquivo editado exit 0; `vitest run` (suite inteira) → 84 test files, 794 testes, todos passam (+1 vs US-009).
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (Realizado/Normal/Meta com cores do tema em light e dark; comportamento de quitação antecipada com marcador).
+- **Learnings for future iterations:**
+  - Uma story declarada "exibir X na nova aba" pode já estar materialmente satisfeita quando a página da nova aba foi montada via reuso de componentes (caso de US-008 reusando `AcompanhamentoDetailPage`). Antes de qualquer trabalho, vale rodar `grep` pelas peças mencionadas no AC (`buildCurves`, `TrackerCurvesChart`) e ler a página alvo — se já estiver ligado, a story vira "add regression guard + verify quality gate" em vez de implementação.
+  - O componente do chart Previsto×Real é `TrackerCurvesChart`; ele tem testes próprios em `tracker-curves-chart.test.tsx`, e o builder dos dados (`buildTrackerChartViews`) tem cobertura própria em `build-tracker-chart-views.test.ts` (incluindo asserts dos tokens `var(--chart-N)`). Para futuras stories que mexam no chart (US-013 "real-time updates"), os testes-âncora estão lá — não tem que recriar do zero.
+  - Mantenha o page-test (`acompanhamento-detail-page.test.tsx`) mockando `TrackerCurvesChart`: ele depende de `ResizeObserver` e de SVG layout, e o objetivo do page-test é foco em wiring/KPIs/spreadsheet/delete — render do chart real é responsabilidade de `tracker-curves-chart.test.tsx`.
+---
+
+## 2026-06-10 - US-011
+- Story materialmente já satisfeita por trabalho anterior: `TrackerSpreadsheet` (`src/features/acompanhamento/components/tracker-spreadsheet.tsx`) já é renderizado em `AcompanhamentoDetailPage` (linha 155) — que é a página servida em `/meus-financiamentos/:id` desde o US-008 — e cobre todas as 4 ACs funcionais:
+  - AC#1 colunas (Mês, Vencimento, Parcela prevista, Pago, Modo, Saldo após, Nota, Ações): visíveis em `columns: DataTableColumn<SpreadsheetRow>[]` (linha 243).
+  - AC#2 `CurrencyInput` para "Valor pago": linha 271 da coluna `paid` com `aria-label="Valor pago no mês N"`.
+  - AC#3 Select padronizado por linha: linha 291 da coluna `mode` usando `@/components/ui/select` (o Radix/shadcn unificado do US-004) com itens "Reduzir prazo" / "Reduzir parcela".
+  - AC#4 Persistência no modelo unificado: usa `useUpsertTrackerEntry`/`useDeleteTrackerEntry` (`src/lib/queries/tracker-plans.ts`), que chamam `upsertTrackerEntry`/`deleteTrackerEntry` no api-client → `POST /api/tracker/plans/:planId/entries` / `DELETE /.../entries/:entryId`. Nenhum write pelo shim legado `scenarios/payments`.
+- Adicionado regression guard em `tracker-spreadsheet.test.tsx` ("persists a saved payment via the unified tracker endpoint with the row's mode") que (a) muda o Modo via row select, (b) digita valor pago, (c) clica Salvar e (d) assert que o fetch foi `POST /api/tracker/plans/tp_1/entries` com body `{ month_index: 1, paid_amount: 12000, apply_mode: "reduce_installment" }`. Garante que qualquer mudança futura na URL ou payload da persistência quebra na CI, satisfazendo AC#4 de forma verificável.
+- Files changed:
+  - `src/features/acompanhamento/components/tracker-spreadsheet.test.tsx` (1 novo `it` block)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` no test/componente editado exit 0; `vitest run` (suite completa) → 84 test files, 795 testes, todos passam (+1 vs US-010).
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (digitar valor pago, mudar Modo via Select, salvar e ver o saldo recalcular).
+- **Learnings for future iterations:**
+  - O contrato do upsert do tracker via api-client é `POST /api/tracker/plans/:planId/entries` com body `UpsertTrackerEntryInput = { month_index, paid_amount, paid_at, apply_mode, note? }`. Note que `paid_amount` é em reais (não centavos) — o servidor converte. Útil pro US-012 (recálculo) e US-013 (tempo real).
+  - Quando vier debugar "porque a parcela prevista não muda ao lançar uma extra" no US-012, lembrar que `scheduledInstallment` na planilha vem de `curves.normal[month-1].installment` (cronograma original) — o problema atual é que `normal` é fixo e não considera amortizações; o que precisa ser corrigido é `curves.realized.months[i].installment` refletir o modo `reduce_installment` adequadamente. A lógica vive em `core/finance` (não no componente).
+  - O test mock do `Dialog` (`vi.mock("@/components/ui/dialog", ...)`) deste arquivo evita problemas com portal Radix em jsdom — quando precisar testar dialog fluxo em outro componente, copie o mesmo passthrough mock.
+  - `CurrencyInput` no test (com mock do Dialog) responde a `fireEvent.change(input, { target: { value: "12000" } })` enviando `12000.00` reais (não 12 000 centavos). O onChange recebe número em reais; o api-client converte pra cents no upsert.
+  - A coluna "Pago" tem `aria-label="Valor pago no mês N"` no input mas o header da coluna é "Pago" (compacto). Se uma futura AC exigir literalmente "Valor pago" no header da coluna, lembrar de mudar `header: "Pago"` para `header: "Valor pago"` em `columns` (linha 267).
+---
+
+## 2026-06-10 - US-012
+- Corrigi o bug em que a coluna "Parcela prevista" da planilha de acompanhamento nunca mudava após um lançamento `reduce_installment`. A causa raiz era o `tracker-spreadsheet.tsx` ler `curves.normal[m-1].installment` (cronograma original, fixo) em vez da parcela vigente do mês após reduções.
+- Mudanças no engine puro (`core/finance/tracker`, Decimal.js):
+  - `ScheduleMonth` ganhou o campo `scheduledInstallment: Decimal`. `installment` continua sendo o "valor desembolsado no mês"; `scheduledInstallment` é a parcela vigente antes de aplicar o lançamento. Em `normalSchedule` os dois campos são iguais.
+  - `realizedSchedule` emite `scheduledInstallment` igual à `currentInstallment` (PRICE) ou `currentAmortization+interest` (SAC) vigentes no início do mês — i.e., antes do lançamento daquele mês. Após um `reduce_installment` com excedente positivo, todos os meses seguintes recebem o `scheduledInstallment` recalculado pelo engine.
+  - Adicionado guard de tolerância no recálculo: o engine só recomputa a parcela vigente (PRICE/SAC) quando `paid - scheduledInstallment > R$ 0,01`. Pagar exatamente a parcela vigente NÃO dispara recomputação — evita drift de arredondamento de ±2 cents que aparecia quando o PRICE era recomputado para o mesmo balance/term.
+  - `goalSchedule` também emite o novo campo por consistência.
+- Mudanças no consumidor (`features/acompanhamento/components/tracker-spreadsheet.tsx`):
+  - Coluna "Parcela prevista" agora lê `realizedRow.scheduledInstallment` em meses ativos (e cai para `normalRow.installment` em meses quitados pela antecipação). Resultado: ao salvar um lançamento `reduce_installment` no mês N, os meses N+1..fim mostram a parcela reduzida em tempo real (graças à invalidação otimista do React Query que já existia).
+- Files changed:
+  - `src/core/finance/tracker/normalSchedule.ts` (novo campo + emit)
+  - `src/core/finance/tracker/realizedSchedule.ts` (novo campo + emit + guard de tolerância no recálculo)
+  - `src/core/finance/tracker/goalSchedule.ts` (novo campo + emit)
+  - `src/core/finance/tracker/realizedSchedule.test.ts` (4 novos testes para US-012: reduce_term, reduce_installment, pagamento igual e pagamento parcial)
+  - `src/features/acompanhamento/components/tracker-spreadsheet.tsx` (leitura da parcela vigente)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos arquivos editados exit 0; `vitest run` → 84 test files, 799 testes (+4 vs US-011), todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (lançar valor > parcela com modo "Reduzir parcela" e observar coluna "Parcela prevista" cair nos meses seguintes; lançar com modo "Reduzir prazo" e ver coluna inalterada + quitação antecipada).
+- **Learnings for future iterations:**
+  - `ScheduleMonth` é COMPARTILHADO entre `normalSchedule`/`realizedSchedule`/`goalSchedule`. Qualquer campo novo precisa ser emitido pelos TRÊS produtores — tsc pega no build. Bonificação: os consumidores em `build-tracker-chart-views.ts`, `simulate-what-if.ts`, `export-tracker.ts` só leem `installment`/`interest`/`amortization`/`balance` então não precisaram mudar.
+  - O guard `extraPaid > PAYOFF_TOLERANCE` no `reduce_installment` é o que mantém `paid == scheduledInstallment` como no-op em Decimal — sem ele, `calculatePriceInstallment(balance, rate, remainingTerm)` pode oscilar em ±R$ 0,02 versus o valor original mesmo quando matematicamente seria idêntico. Útil em qualquer engine de schedule que faça "recalc quando algo mudou": só recalcule se houve mudança maior que a tolerância de centavo.
+  - O test que comparava "todos os meses == normal" estava errado porque o último mês do PRICE em `normalSchedule` vira "amortizar tudo + juros" (`balance + interest`), que difere em centavos da `baseInstallment`. Para asserir "nada mudou", compare BALANCES (com tolerância 1 cent), não installments, e separadamente asserte `scheduledInstallment == baseInstallment` apenas nos meses intermediários.
+  - O test de "pagamento parcial" assume que UI/API bloqueiam paid < scheduled (correto — `tracker-spreadsheet.tsx` linha 206 valida), mas o engine não pode quebrar nesse cenário: amortiza o que foi pago, mantém saldo não-negativo. Com o guard de tolerância, `reduce_installment` parcial também NÃO dispara recálculo (não há extra), o que é o comportamento certo.
+  - A coluna "Parcela prevista" da planilha vem de `curves.realized.months[m-1].scheduledInstallment`. Para meses quitados antecipadamente (`realizedRow === undefined`), a fonte cai para `curves.normal[m-1].installment` — isso só importa visualmente para mostrar um valor "razoável" naquela linha que já está bloqueada como "Quitado".
+---
+
+## 2026-06-10 - US-013
+- Story já materialmente implementada via composição existente: `AcompanhamentoDetailPage` deriva `curves = useMemo(() => buildCurves(detail.plan, detail.entries), [detail])` e `kpis = useMemo(() => buildTrackerKpis(curves), [curves])`, e `useUpsertTrackerEntry`/`useDeleteTrackerEntry` (`src/lib/queries/tracker-plans.ts`) escrevem no MESMO `trackerPlanQueryKey(planId)` que `useTrackerPlan` lê. Resultado: salvar/editar/excluir um lançamento atualiza a cache → `detail` muda → curves/KPIs recomputam pelo useMemo → `<SectionCards items={kpis}/>` e `<TrackerCurvesChart curves={curves}/>` re-renderizam, tudo sem reload.
+- Adicionados dois testes de regressão (cobertura comportamental que ainda não existia):
+  1. `acompanhamento-detail-page.test.tsx`: novo `it` "recomputes KPIs and re-renders the chart when entries change without reloading" — usa o mesmo padrão de mock + `rerender()` dos casos existentes; prova o wiring de `useMemo` ao trocar `detail` de "sem entries" (KPIs `—`) para "com 3 entries" (KPIs com `R$`/`%`).
+  2. `acompanhamento-detail-page.realtime.test.tsx` (novo): teste end-to-end com `QueryClient` real + `useTrackerPlan`/`useUpsertTrackerEntry` reais, apenas `fetch` mockado. Simula o fluxo "GET inicial -> render KPIs `—` -> digitar valor e clicar Salvar -> POST /api/tracker/plans/tp_1/entries -> optimistic update -> KPIs ganham valor sem reload". Cobre AC#1/#2/#3 de ponta a ponta.
+- Files changed:
+  - `src/features/acompanhamento/pages/acompanhamento-detail-page.test.tsx` (1 novo `it`)
+  - `src/features/acompanhamento/pages/acompanhamento-detail-page.realtime.test.tsx` (novo)
+  - `scripts/ralph/progress.txt` (este bloco + 1 padrão novo)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos 2 arquivos de teste exit 0; `vitest run` (suite completa) → 85 test files, 801 testes (+2 vs US-012), todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (em `/meus-financiamentos/:id`: digitar valor no mês 1, clicar Salvar e observar o cartão "Saldo devedor" cair, "% já pago" subir, "Parcelas restantes" diminuir e o chart Previsto×Real ganhar um novo ponto na curva Realizado, tudo sem reload; excluir o lançamento e ver os mesmos cartões voltarem ao estado `—`).
+- **Learnings for future iterations:**
+  - O fluxo Real-Time desta página depende de TRÊS peças que já existem e não devem ser duplicadas: (a) `useMemo` para `curves` e `kpis` na página (não copiar para state); (b) `useUpsertTrackerEntry`/`useDeleteTrackerEntry` escrevendo no mesmo cache key que `useTrackerPlan`; (c) o componente `TrackerSpreadsheet` chamando essas mutations. Qualquer story futura que adicione uma nova mutation precisa replicar o passo (b) — caso contrário a UI fica "fria" até um refetch manual.
+  - Para testar real-time de uma página inteira, escolha entre dois padrões: (i) mock do `useTrackerPlan` + `rerender()` com novos dados (rápido, foca no useMemo wiring); (ii) `QueryClient` real + apenas `fetch` mockado (mais lento, mas exercita as mutations otimistas reais). Cobertura ideal: ter os dois (já feito).
+  - Quando criar testes do tipo (ii), use o `selectMock` canônico de `@/tests/select-mock` para o `<Select>` da planilha (Radix Select quebra em jsdom por causa de pointer-capture/portal). E mock o `TrackerCurvesChart` como `<div data-testid="tracker-curves-chart"/>` para não depender de `ResizeObserver`/SVG layout — o foco é a página, não o chart em si (que tem seu próprio test file).
+  - O endpoint canônico para upsert continua sendo `POST /api/tracker/plans/:planId/entries` (não `PUT`, não `/upsert`). Para o `getTrackerPlan(id)`, o GET é `/api/tracker/plans/:id`. Útil pra escrever stubs de fetch precisos.
+  - `fetchSpy.mock.calls` é tipado como `[input, init?]`; o `init?.method` cai como `string | undefined`. Para encontrar a chamada POST especificamente, filtre por `(init as RequestInit | undefined)?.method === "POST"`.
+---
+
+## 2026-06-10 - US-014
+- Confirmado e travado por testes o fluxo "Simular antecipação" na aba "Meus Financiamentos" (`/meus-financiamentos/:id`): a página já montava `TrackerWhatIfDialog` (do botão "Simular antecipação"), com simulação 100% em memória via `simulateWhatIf` (sem chamar a API até o usuário confirmar) e apply via `useUpsertTrackerEntry` (POST `/api/tracker/plans/:id/entries` — recurso unificado).
+- Files changed:
+  - `src/features/acompanhamento/pages/acompanhamento-detail-page.test.tsx` — refatorei o mock de `@/lib/queries/tracker-plans` para expor um `upsertEntryMutateAsync` estável (antes era `vi.fn()` recriado por chamada), adicionei o mock de Select (necessário porque o what-if dialog renderiza Radix Select para Mês e Modo), e cobri o US-014 com dois testes novos:
+    - "opens the what-if simulation dialog from 'Simular antecipação' without persisting" — clicar no botão abre o dialog (heading "Simular antecipação" aparece) e nenhuma chamada de mutação é disparada.
+    - "creates the real entry via the unified resource when the simulation is applied" — preenche o `Valor`, confere que o preview (`tracker-what-if-result`) renderiza sem call de API, clica "Aplicar este lançamento" e verifica `upsertEntryMutateAsync` chamado com o payload do recurso unificado.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src` exit 0 (somente warnings react-refresh pré-existentes em `site-header.tsx` e `select-mock.tsx`); `vitest run` (suite completa) → 85 test files, 803 testes, todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (abrir `/meus-financiamentos/:id`, clicar "Simular antecipação", confirmar que o preview reativo aparece, e que "Aplicar este lançamento" cria a entry e recalcula KPIs/gráfico).
+- **Learnings for future iterations:**
+  - Quando uma page test precisa interagir com um dialog que abre um `Select` Radix (mês/modo no `tracker-what-if-dialog`, por exemplo), adicione o mesmo mock de `@/components/ui/select` que os outros testes usam (`vi.mock("@/components/ui/select", async () => (await import("@/tests/select-mock")).selectMock)`). Sem isso o Radix Select trava no jsdom por pointer-capture/portal, e o teste falha já no render do dialog.
+  - Para asserções de wiring page → dialog (botão abre dialog, dialog dispara mutation correta), prefira capturar a mutation com um `vi.fn()` *estável* no `vi.mock` no topo do arquivo (igual ao `deleteMutateAsync`), em vez de `vi.fn()` recriado por chamada de hook — caso contrário cada `useMutation()` retorna um mock diferente e o `toHaveBeenCalled` falha.
+  - A regra de "scope ao dialog" é importante quando o conteúdo já existe em outros lugares da página: o dialog tem um input `Valor` mas o spreadsheet tem `Valor pago no mês N` — `within(dialog).getByLabelText("Valor")` evita ambiguidade com a tabela.
+  - O `simulate-next-payment-card` mencionado no AC do US-014 é do recurso *legado* `historico` (não foi reutilizado em "Meus Financiamentos"). A simulação what-if da nova aba é coberta inteiramente pelo `tracker-what-if-dialog`. Não foi necessário trazer `simulate-next-payment-card` para a página de detalhes.
+---
+
+## 2026-06-10 - US-015
+- Endpoints REST para gestão de conta sob `/api/account`, montados em `src/server/index.ts` ANTES do middleware `requireUser` genérico (mesma convenção dos routers anteriores).
+  - `GET /api/account` → lê `c.var.user` (já populado por `requireUser`) e devolve `{ account: { id, name, email, emailVerified, createdAt } }`. Sem I/O extra.
+  - `PATCH /api/account` → aceita `{ name?, email? }` (Zod). Para `name`, faz `update "user" set "name" = ?, "updatedAt" = ? where "id" = ?` direto na D1 (e atualiza `user.name` em memória para a resposta). Para `email`, delega a `auth.api.changeEmail({ body: { newEmail }, headers })` do Better Auth — o email NÃO muda até o usuário clicar o link enviado para o endereço atual. Retorna `emailVerificationSent: boolean` no payload pro frontend saber se houve trigger de email.
+  - `DELETE /api/account` → aceita `{ password }` (Zod). Delega a `auth.api.deleteUser({ body: { password }, headers })` — Better Auth valida a senha (reauth), apaga o user (`ON DELETE CASCADE` cuida de session/account/scenario_drafts/tracker_plans/financing_scenarios e seus filhos) e zera o cookie de sessão.
+- Para que `auth.api.changeEmail`/`auth.api.deleteUser` existam, ativei opções no Better Auth:
+  - `src/server/auth-options.ts`: `user.changeEmail.enabled = true`, `user.deleteUser.enabled = true`, e `session.freshAge = 0`. O `freshAge: 0` desliga o "sensitive session middleware" — sem isso, change-email/change-password falhariam para sessões > 24h. A segurança do delete vem do password-reauth (Better Auth já exige) e a do change-password vem da senha atual (Better Auth já exige).
+  - `src/server/auth.ts`: nova função pura `buildChangeEmailUrl(publicAppUrl, originalUrl)` (irmã das outras) que reescreve o link de Better Auth para o SPA `/verify-email?token=...` (a página existente reconhece o intent `change-email-verification` pelo payload do token). Wired em `createAuth` como `user.changeEmail.sendChangeEmailConfirmation`, que monta o template e envia via Resend (mesmo pattern de verify/reset).
+- Novo template branded `changeEmailTemplate` em `src/server/email-templates.ts` (subject "Confirme a alteração de email", inclui o novo email no corpo, escapa HTML via `escapeHtml` herdado).
+- Files changed:
+  - `src/server/routes/account.ts` (novo)
+  - `src/server/routes/account.test.ts` (novo) — 17 testes cobrindo 401 (não autenticado em GET/PATCH/DELETE), GET (retorna account), PATCH (name, JSON inválido, body vazio, name longo, email inválido, email change delegado, email == atual no-op, APIError -> JSON), DELETE (sucesso, JSON inválido, sem password, INVALID_PASSWORD, CREDENTIAL_ACCOUNT_NOT_FOUND).
+  - `src/server/auth.ts` (nova função `buildChangeEmailUrl` + wiring `user.changeEmail.sendChangeEmailConfirmation`)
+  - `src/server/auth.test.ts` (3 testes novos para `buildChangeEmailUrl`)
+  - `src/server/auth-options.ts` (opções `user`/`session.freshAge`)
+  - `src/server/email-templates.ts` (novo `changeEmailTemplate` + tipo `ChangeEmailTemplateInput`)
+  - `src/server/email-templates.test.ts` (2 testes novos para `changeEmailTemplate`)
+  - `src/server/index.ts` (monta `accountRouter` em `/api/account`)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src/server/` exit 0; `vitest run` (suite completa) → 86 test files, 820 testes (+17 vs US-014), todos passam.
+- **Learnings for future iterations:**
+  - Better Auth expõe as rotas internamente como `auth.api.<endpointName>({ body, headers })` — chamável direto do nosso código de Worker sem precisar fabricar um Request HTTP. Útil para `changeEmail`, `deleteUser`, `changePassword`, `updateUser`, etc. No sucesso retornam o JSON; no erro lançam `APIError` (de `better-auth/api`), com `statusCode` numérico e `body.code`/`body.message`. Padrão: try/catch APIError → `c.json({ error: body.code, message }, statusCode)`.
+  - Para essas chamadas funcionarem, a opção precisa estar enabled em `user.changeEmail.enabled`/`user.deleteUser.enabled`. As opções padrão são `false` (segurança por default). `changeEmail` PRECISA de um `sendChangeEmailConfirmation` quando o user já está verificado — sem isso o endpoint retorna 400 "Verification email isn't enabled".
+  - O `sensitiveSessionMiddleware` do Better Auth bloqueia `change-email`/`change-password` quando o session é mais velho que `freshAge` (default 24h). Em apps onde o usuário fica logado por dias, o UX quebra. Solução adotada: `session.freshAge = 0` (desliga o gate). A segurança fica: login exige senha; `delete-user` exige senha (Better Auth respeita isso); `change-password` exige senha atual (idem). Sessão tem TTL de 30 dias, fim.
+  - O `ON DELETE CASCADE` nos schemas D1 (`session.userId`, `account.userId`, `scenario_drafts.user_id`, `financing_scenarios.user_id`, `tracker_plans.user_id`) faz com que `DELETE FROM "user"` cubra TUDO — não precisa orquestrar a limpeza no servidor. O `auth.api.deleteUser` chama `internalAdapter.deleteUser`, que dispara o cascade.
+  - Para a coluna `createdAt`/`updatedAt` no Better Auth `"user"` table o tipo SQL é `date`, mas Better Auth grava `Date` no INSERT/UPDATE e D1 aceita Date como bind (libsql persiste como ISO/epoch). Nosso `update "user" set "name" = ?, "updatedAt" = ?` faz `.bind(name, new Date(), userId)` — testado com fake-D1 que recebe e armazena o Date direto.
+  - Em vitest, `vi.fn(async () => ({...}))` infere parâmetros como `[]` e o `mock.calls[i]?.[0]` cai como `undefined`. Quando o teste precisa inspecionar o que foi passado, anote o tipo do mock explicitamente: `vi.fn(async (_args: { body: { ... } }) => ({...}))` — assim `mock.calls[0]?.[0]` é tipado e o `as` cast some.
+  - Padrão do fake-D1 nestes testes: implementar apenas o(s) shape(s) SQL que o handler emite e jogar `throw new Error(\`Unhandled SQL: ${sql}\`)` em qualquer outro caso. Falha barulhento quando o handler ganha uma query nova sem teste cobrindo. Os mocks de `auth.api` seguem a mesma lógica — expõem só `getSession`/`changeEmail`/`deleteUser`.
+  - Frontend (US-017/US-018/US-019) deve chamar diretamente `POST /api/auth/change-password` (Better Auth) com `{ currentPassword, newPassword, revokeOtherSessions: true }` — NÃO há wrapper nosso. Para change-email vai por `PATCH /api/account` (nosso). Para delete vai por `DELETE /api/account` (nosso).
+---
+
+## 2026-06-11 - US-016
+- Habilitado o item "Conta" e confirmado o fluxo de logout no `NavUser`.
+- Files changed:
+  - `src/components/nav-user.tsx` — removido `disabled` do `DropdownMenuItem` "Conta" e adicionado `onSelect={handleAccount}` que chama `navigate("/conta")`. O handler de logout (`handleSignOut` -> `signOut.mutate()` + `navigate("/login")`) já satisfazia AC#1 (`useSignOut` invalida `SESSION_QUERY_KEY` via React Query); apenas verificado.
+  - `src/components/nav-user.test.tsx` — novo teste cobrindo a navegação para `/conta` (não disabled + clique resulta em conta page). Rota `/conta` adicionada ao MemoryRouter de teste como `<div>conta page</div>`.
+- O destino `/conta` ainda não existe nas rotas (`src/app/routes.tsx`) — será adicionado em US-017. Entre as duas iterações o item navegará para o `NotFoundPage`. Isso é esperado para Ralph progressivo e está dentro do escopo do AC ("navega para `/conta`").
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src/components/nav-user.{tsx,test.tsx}` exit 0; `vitest run` -> 86 test files, 826 testes (6 do nav-user.test.tsx), todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (abrir dropdown, clicar Conta -> deve abrir /conta; clicar Sair -> deve invalidar sessão e voltar para /login).
+- **Learnings for future iterations:**
+  - `useSignOut` em `src/lib/queries/session.ts` já chama `queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY })` no `onSuccess`. Não é preciso invalidar manualmente no `handleSignOut` da `NavUser`; basta passar `onSuccess: () => navigate("/login")` na `mutate()`.
+  - O mock canônico de Radix DropdownMenu em `nav-user.test.tsx` substitui `DropdownMenuItem` por um `<button role="menuitem">` que **chama `onSelect`** no `onClick`. Logo, para wirar um novo item de menu basta passar `onSelect={...}` na produção — o mesmo path funciona em prod (Radix) e em jsdom (mock).
+  - Para testar navegação por menu (sem MemoryRouter aninhado), registre uma rota de destino simples (`<Route path="/conta" element={<div>conta page</div>} />`) no `Routes` do helper de teste; assert via `screen.getByText("conta page")`. Mesmo padrão já usado para `/login`.
+  - O `/conta` propriamente dito chega em US-017 (página `Minha Conta`). Por enquanto a navegação cai no `NotFoundPage` — não há trabalho extra em US-016 para "pré-criar" a rota; mantém o escopo mínimo da história.
+---
+
+## 2026-06-11 - US-017
+- Nova página protegida `/conta` ("Minha Conta") que exibe nome, e-mail e data de criação do usuário autenticado e permite editar nome+e-mail. Reusa os endpoints já criados em US-015 (`GET /api/account` / `PATCH /api/account`).
+- Frontend wiring (sem precisar de novos endpoints):
+  - `src/lib/api-client.ts`: novo bloco "Account management" com `AccountApi`/`UpdateAccountInput`/`UpdateAccountResponse` e helpers `getAccount()` / `updateAccount(input)` sobre `/api/account`.
+  - `src/lib/queries/account.ts` (novo): `useAccount` (cache key `["account"]`) e `useUpdateAccount`; o `onSuccess` da mutation faz `setQueryData(["account"], data.account)` E invalida `SESSION_QUERY_KEY` para que `NavUser` / `useSession` puxem o nome atualizado em seguida (AC#4 "UI/sessão atualiza após salvar").
+  - `src/features/account/schemas/account-profile.ts` (novo): zod `name(1-100)` + `email`.
+  - `src/features/account/pages/account-page.tsx` (novo): Card com data de criação + formulário shadcn (Form/FormField/Input). Submit envia um patch só com os campos alterados; mensagens de feedback (`account-success`, `account-email-pending`, `account-error-message`) + Skeleton em loading e `Alert` em erro. Sucesso da troca de e-mail mostra `Alert` orientando que a mudança vale após confirmar.
+- Rota wiring:
+  - `src/app/routes.tsx`: `<Route path="/conta" element={<AccountPage />} />` dentro de `<ProtectedRoute>` (rota protegida).
+  - `src/components/site-header.tsx`: `getPageTitle` agora mapeia `/conta` → "Minha Conta" (e atualização do teste parametrizado em `site-header.test.tsx`).
+- Cobertura de testes nova (+14 testes vs US-016, total 88 files / 840 tests):
+  - `src/features/account/pages/account-page.test.tsx` (9 testes): loading state, error state, render de nome/email/data, salvar nome chama `PATCH` com apenas o campo alterado, banner "confirme o novo email" no caso de e-mail novo, "nenhuma alteração" no submit vazio, tradução pt-BR de `EMAIL_TAKEN`, botão desabilitado durante save, validação client-side de email.
+  - `src/lib/queries/account.test.tsx` (2 testes): `useAccount` chama `getAccount`; `useUpdateAccount` chama `updateAccount`, seeda `["account"]` e invalida `["session"]`.
+  - `src/app/App.test.tsx`: smoke de `/conta` para anônimo (auth modal) e autenticado (heading "Minha Conta").
+  - `src/components/site-header.test.tsx`: nova linha `["/conta", "Minha Conta"]` no `getPageTitle.each`.
+- Files changed:
+  - `src/lib/api-client.ts` (novo bloco account)
+  - `src/lib/queries/account.ts` (novo)
+  - `src/lib/queries/account.test.tsx` (novo)
+  - `src/features/account/schemas/account-profile.ts` (novo)
+  - `src/features/account/pages/account-page.tsx` (novo)
+  - `src/features/account/pages/account-page.test.tsx` (novo)
+  - `src/app/routes.tsx` (rota /conta)
+  - `src/app/App.test.tsx` (smokes /conta)
+  - `src/components/site-header.tsx` (`getPageTitle` para /conta)
+  - `src/components/site-header.test.tsx` (linha no `each`)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos 10 arquivos editados exit 0 (apenas o warning react-refresh pré-existente em `site-header.tsx` — esperado, já era assim antes); `vitest run` (suite completa) → 88 test files, 840 testes, todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (entrar logado em `/conta` via menu "Conta", editar o nome → ver feedback "Alterações salvas" e nome trocar no `NavUser` sem reload; editar o e-mail → ver banner "Confirme o novo email" e e-mail antigo permanecer; em outro dispositivo, deslogar e tentar acessar `/conta` → ver modal de autenticação).
+- **Learnings for future iterations:**
+  - A regra de "UI/sessão atualiza após salvar" para mudanças de nome resolve-se invalidando `SESSION_QUERY_KEY` no `onSuccess` da mutation (já que `NavUser` lê de `useSession()` e o backend grava no `"user"` table). NÃO existe um `setQueryData(["session"], ...)` direto — `useSession` consome o shape `{user,session}` de `getSession`, e o servidor é a fonte canônica. Invalidar + refetch é o caminho correto.
+  - Para mudanças de e-mail, NÃO atualize otimisticamente nem o `["account"]` nem o `["session"]` com o novo e-mail — o backend deliberadamente NÃO troca o e-mail no `user` até a confirmação (Better Auth dispara `changeEmail`). A UI deve mostrar o e-mail atual + banner "confirme o novo email" e resetar o form com o `account` retornado pelo PATCH (que ainda tem o e-mail antigo).
+  - Para construir o patch enviado ao `PATCH /api/account`, compare apenas os campos alterados contra `account.name` / `account.email.toLowerCase()` e omita os iguais. O backend já tem um no-op (`PATCH` sem campos → 422), então no client é melhor mostrar "Nenhuma alteração para salvar" antes de chamar.
+  - O API client lança `ApiError` (status, body) — tradução de erros conhecidos para pt-BR vive na própria página via `translateUpdateError`. Padrão: `body.error` é o `code` (string SCREAMING) e `body.message` é o motivo em inglês.
+  - O `useEffect` que faz `reset({ name, email })` quando `account` carrega É necessário: `defaultValues` do react-hook-form é avaliado uma única vez no mount, e na primeira render o account vem `null` (cache miss). Sem o `reset`, os inputs ficam vazios mesmo depois do load.
+  - O contrato `vi.fn()` para `mutateAsync` em testes de page: declarar como módulo-scope estável (não recriado por chamada de `useMutation`) e expor via `useUpdateAccountMock.mockReturnValue({ mutateAsync, isPending })`. Permite asserir `toHaveBeenCalledWith({ ... })` sem se preocupar com identidade do mock entre re-renders.
+---
+
+## 2026-06-11 - US-018
+- Adicionada seção "Trocar senha" na página `/conta` (`AccountPage`), satisfazendo todos os AC do US-018. Estrutura: novo Card abaixo do Card "Minha Conta", com os três campos exigidos (Senha atual, Nova senha, Confirme a nova senha) e botão "Trocar senha". Submit chama `authClient.changePassword({ currentPassword, newPassword, revokeOtherSessions: true })` diretamente — sem wrapper nosso, conforme decisão tomada em US-015. Em sucesso, limpa os campos e mostra `change-password-success` ("Senha trocada com sucesso. As demais sessões foram desconectadas."). Em erro, traduz `INVALID_PASSWORD` → "A senha atual está incorreta.", `PASSWORD_TOO_SHORT/TOO_LONG` → mensagens próprias, `CREDENTIAL_ACCOUNT_NOT_FOUND` → "Esta conta não usa senha. Use o provedor com o qual entrou.", e 429 → mensagem de rate limit.
+- Validação client-side via novo zod schema `change-password.ts`: `currentPassword` mínimo 1 char (presença), `newPassword` mínimo 8 chars, `newPasswordConfirmation` deve bater (superRefine), e bloqueio explícito quando `newPassword === currentPassword` ("A nova senha deve ser diferente da atual."). Mensagens surgem via `FormMessage` do shadcn — consistente com o resto dos forms de auth.
+- Files changed:
+  - `src/features/account/schemas/change-password.ts` (novo) — zod schema da troca de senha
+  - `src/features/account/pages/account-page.tsx` (extendido) — novo Card, hook `useForm<ChangePasswordFormValues>`, `onPasswordSubmit`, `translateChangePasswordError`, e mock-friendly `authClient.changePassword({...})` direto
+  - `src/features/account/pages/account-page.test.tsx` (extendido) — novo `describe("change password section", ...)` com 5 testes novos (render dos 3 campos, bloqueio de submit com confirmação divergente, bloqueio de submit < 8 chars, sucesso com `revokeOtherSessions: true` + limpeza dos campos, erro `INVALID_PASSWORD` em pt-BR). Novo `vi.mock("@/lib/auth-client", ...)` com `changePassword: vi.fn()`.
+  - `scripts/ralph/progress.txt` (este bloco + 1 padrão novo no topo)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src/features/account` exit 0; `vitest run` (suite completa) → 88 test files, 845 testes (+5 vs US-017), todos passam.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (em `/conta`: digitar senha errada → ver mensagem "A senha atual está incorreta."; trocar com sucesso → ver mensagem verde + campos limpos; abrir uma segunda aba/dispositivo antes da troca e verificar que após a troca a sessão de lá é invalidada).
+- **Learnings for future iterations:**
+  - `authClient` da Better Auth (`@/lib/auth-client`) expõe `changePassword/resetPassword/requestPasswordReset` etc. como métodos top-level via dynamic-path proxy — mesma assinatura do servidor: `{ currentPassword, newPassword, revokeOtherSessions? }`. Retorna `{ data, error }` (NÃO joga). É a alternativa "sem wrapper" recomendada quando o backend já tem o endpoint coberto pela Better Auth.
+  - O `error.code === "CREDENTIAL_ACCOUNT_NOT_FOUND"` cobre o caso em que o user entrou via Google (não tem senha credentials linkada). A página de Conta tem que tratar isso com uma mensagem clara, senão o user fica confuso ao tentar trocar senha.
+  - Para mockar `authClient.changePassword` em testes de página, faça `vi.mock("@/lib/auth-client", () => ({ authClient: { changePassword: (...args) => mock(...args) } }))` — não exporte `changePassword` direto do módulo; o page chama `authClient.changePassword(...)`, então o mock precisa expor a função aninhada dentro do objeto.
+  - `revokeOtherSessions: true` no `changePassword` faz o backend deletar TODAS as sessões do user e criar uma nova só para a aba atual (o cookie é re-emitido via `setSessionCookie`). Bom UX e bom security; sempre passar `true` na troca de senha.
+  - O zod superRefine que compara `currentPassword === newPassword` deve checar os dois `length > 0` antes — senão, no primeiro render com ambos vazios, o issue dispara "" === "" e mostra "A nova senha deve ser diferente da atual." na hora errada.
+---
+
+## 2026-06-11 - US-019
+- Adicionada secao "Excluir conta" em `/conta` com Card de zona destrutiva (border `destructive/40`, aviso de irreversibilidade) e botão "Excluir minha conta" que abre Dialog shadcn de confirmacao com reautenticacao por senha. Confirmacao chama `DELETE /api/account` (Better Auth `deleteUser` -> hard delete + cascade nas tabelas filhas, ver US-015), invalida `["account"]` e `["session"]` no React Query e navega para `/login` via `useNavigate({ replace: true })`. Cancelar/Esc bloqueado enquanto a mutation está pendente.
+- Erros conhecidos do servidor traduzidos para pt-BR dentro do dialog (alert role="alert" no `delete-account-error`): `INVALID_PASSWORD` -> "Senha incorreta. Verifique e tente novamente.", `CREDENTIAL_ACCOUNT_NOT_FOUND` -> orientação para usar o provedor original, 429 -> rate limit. Validação client-side via novo zod schema `delete-account.ts` (`password.min(1)`).
+- Wiring atrás do botão: novo `deleteAccount({ password })` em `src/lib/api-client.ts` (DELETE /api/account com body JSON `{password}`); novo hook `useDeleteAccount()` em `src/lib/queries/account.ts` (mutation que no `onSuccess` zera `ACCOUNT_QUERY_KEY` e invalida `SESSION_QUERY_KEY` — esse último faz `NavUser`/`useSession` reverter para anônimo no próximo render).
+- Files changed:
+  - `src/lib/api-client.ts` (novo `DeleteAccountInput` + `deleteAccount`)
+  - `src/lib/queries/account.ts` (novo `useDeleteAccount`)
+  - `src/lib/queries/account.test.tsx` (1 novo `describe` — `useDeleteAccount` chama o api-client, zera o cache do account e invalida a sessão)
+  - `src/features/account/schemas/delete-account.ts` (novo zod)
+  - `src/features/account/pages/account-page.tsx` (Card destrutivo + Dialog + form de reauth + `translateDeleteError`)
+  - `src/features/account/pages/account-page.test.tsx` (6 novos testes — render do card, abertura do dialog com input de senha, bloqueio com senha vazia, sucesso (assert mutation payload + `navigate("/login", {replace:true})`), erro INVALID_PASSWORD em pt-BR dentro do dialog, botão "Excluindo…" quando pending. Adicionado `vi.mock("react-router-dom", ...)` para `useNavigate` e mock passthrough de `@/components/ui/dialog` para Radix portal/pointer-capture)
+  - `scripts/ralph/prd.json` (passes:true)
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint` nos 6 arquivos editados exit 0; `vitest run` (suite completa) → 88 test files, 852 testes (+7 vs US-018), todos passam; `vite build` exit 0.
+- Browser verification: sandbox sem browser MCP — verificação visual manual ainda recomendada (em `/conta`: clicar "Excluir minha conta" → ver dialog com input de senha; senha errada → ver "Senha incorreta" dentro do dialog, sessão intacta; senha correta → conta sumir do banco, cookie zerado, redirect imediato para `/login`).
+- **Learnings for future iterations:**
+  - `DELETE /api/account` (Better Auth `deleteUser`) já apaga o cookie de sessão server-side (resposta seta `Set-Cookie` com expira/maxAge=0). Mesmo assim a UI precisa invalidar `SESSION_QUERY_KEY` no `onSuccess` da mutation — senão o `useSession()` continua devolvendo o user em memória até o próximo refetch (o `setQueryData(["account"], null)` SOZINHO não cobre isso). Padrão: limpar a query do recurso direto + invalidar `SESSION_QUERY_KEY`.
+  - Para navegar logo após uma mutation destrutiva, use `navigate("/login", { replace: true })` (não acumula histórico — clicar voltar não tenta restaurar `/conta` numa sessão zerada). Mesmo padrão do logout em `nav-user.tsx`.
+  - Mockar `@/components/ui/dialog` em testes de page que abrem dialog: além de passthrough para Header/Footer/Title, a `DialogContent` precisa repassar `data-testid` e demais props para a div interna — sem isso, `getByTestId("delete-account-dialog")` falha porque o testId fica preso num passthrough vazio. Truque: `DialogContent: ({children, ...rest}) => <div {...rest}>{children}</div>`.
+  - `react-hook-form` + zod com `mode: "onBlur"` valida o campo só no submit (ou no blur). No teste de "campo vazio bloqueia submit", basta clicar no botão de confirm — o `handleSubmit` chama `trigger()` internamente e a mensagem da regra `min(1)` aparece via `FormMessage`. Não precisa simular blur explícito.
+  - O guard `if (!open && deleteSubmitting) return;` em `handleDeleteOpenChange` evita que o usuário feche o dialog (clicando overlay/Esc/Cancelar) DURANTE o delete em flight — sem isso, o redirect tenta navegar a partir de uma página já desmontada e o React loga warning. Padrão geral para dialogs com mutations destrutivas.
+  - O `setQueryData(ACCOUNT_QUERY_KEY, null)` no `onSuccess` do `useDeleteAccount` faz o `useAccount()` mostrar `data: null, isPending: false` imediatamente — útil se o usuário voltar para `/conta` antes do redirect (cai no error state, mas sem expor dados de conta apagada).
+---
+
+## 2026-06-11 - US-020
+- Cleanup da release "Identidade Visual + Meus Financiamentos + Conta": removido todo o modelo antigo (`financing_scenarios`/`payment_history`) do SPA, do Worker e da documentação. A migração `0007_drop_legacy_financing_tables.sql` faz o drop físico das duas tabelas (já criadas em `0002_domain.sql`); a migração de dados ficou em `0006_unify_financing_to_tracker.sql` (US-006). Indexes são removidos automaticamente pelo SQLite junto com a parent table. O draft do simulador continua em `scenario_drafts` (nome histórico, sem relação com o modelo dropado), agora servido por `/api/drafts` (novo `src/server/routes/drafts.ts`) em vez do antigo `/api/scenarios/draft`.
+- Rotas antigas removidas do `src/server/index.ts`: `paymentsRouter` e `scenariosRouter` deixaram de ser montados; novos arquivos `routes/payments.ts`/`routes/scenarios.ts` + testes apagados. O `drafts.ts` herdou o handler GET/PUT do antigo `/api/scenarios/draft` (mesma tabela, mesmo schema; só o path mudou). API client (`src/lib/api-client.ts`) perdeu o bloco "Legacy shims" inteiro — `*Scenario*` e `*Payment*` types/funcs apagados; o header doc agora aponta só para "/api/tracker/plans/*", "/api/account" e "/api/drafts".
+- Feature `src/features/historico/*` apagada por completo (components, lib, pages, schemas). O `app-shell.tsx` parou de montar `MigrateLocalSimulationDialog` (sem onde migrar — não há mais tabelas legadas). `site-header.tsx`/`site-header.test.tsx` perderam o `ScenarioCombobox` (que vinha de `features/historico`) e o branch `/historico/:scenarioId`. As rotas `/historico*` e `/acompanhamento*` continuam como redirects em `src/app/routes.tsx` (US-008) — apenas links de UX, nada toca mais o backend antigo.
+- Comentários/menções stale ao modelo antigo varridos do código:
+  - `src/server/routes/tracker-plans.ts`, `tracker-entries.ts`, `account.ts`, `drafts.ts`, `auth-options.ts` → removidas referências a `financing_scenarios`/`payment_history`/"/api/scenarios/*" e ao "legacy shim".
+  - `src/features/simulator/lib/simulator-draft.ts` e `src/features/simulator/hooks/use-simulator-draft.test.tsx` → URL passou a ser `/api/drafts`.
+  - `src/lib/queries/CLAUDE.md` → tirou a menção ao `MigrateLocalSimulationDialog` no AppShell.
+  - `CLAUDE.md`, `README.md`, `docs/auth-smoke.md`, `docs/schema.md` → struct de pastas e exemplos de smoke-test atualizados para o canônico tracker.
+  - Grep final: `rg "financing_scenarios|payment_history|scenario_payments" src/` e `rg "api/scenarios|api/payments|api/financings" src/` voltam **zero matches**.
+- Files changed (resumo): apagados `src/features/historico/**` (15 arquivos), `src/lib/local-simulation-migration{.ts,.test.ts}`, `src/lib/queries/{scenarios,payments}{.ts,.test.tsx}`, `src/server/routes/{scenarios,payments,financings.test}.ts`; modificados `src/app/app-shell.tsx`, `src/lib/api-client.ts`, `src/lib/queries/draft.ts`, `src/lib/queries/CLAUDE.md`, `src/server/index.ts`, `src/server/routes/{account,tracker-plans,tracker-entries,drafts}.ts`, `src/server/auth-options.ts`, `src/features/simulator/lib/simulator-draft.ts`, `src/features/simulator/hooks/use-simulator-draft.test.tsx`, `src/components/site-header{.tsx,.test.tsx}`, `CLAUDE.md`, `README.md`, `docs/{auth-smoke,schema}.md`, `tasks/prd-identidade-visual-meus-financiamentos-e-conta.md`; criados `migrations/0007_drop_legacy_financing_tables.sql`, `src/server/routes/drafts{.ts,.test.ts}`.
+- Quality checks: `tsc -b --noEmit` exit 0; `eslint src` exit 0 (apenas 11 warnings react-refresh pré-existentes em `site-header.tsx` + `tests/select-mock.tsx`); `vitest run` (suite completa) → **79 test files, 748 testes**, todos passam (queda vs US-019 reflete os 9 test files apagados junto com o modelo antigo).
+- Sandbox: `db:migrate:local` não roda (Wrangler v4 exige Node 22, ambiente em Node 20 — padrão documentado nos Codebase Patterns). SQL do `0007_drop_legacy_financing_tables.sql` foi revisado manualmente: `drop table if exists payment_history` antes de `financing_scenarios` (ordem child→parent, mesmo que `ON DELETE CASCADE` torne irrelevante).
+- Browser verification: sandbox sem browser MCP — verificação manual ainda recomendada para confirmar que (a) o fluxo de Meus Financiamentos continua intacto após o drop, (b) o autosave do draft do simulador continua salvando em D1 via `/api/drafts`, (c) a barra do header não regrediu (sem combobox de cenário). Em produção, basta correr `bun run db:migrate:remote` antes do deploy (CI já faz isso).
+- **Learnings for future iterations:**
+  - Quando uma migração drop simplesmente apaga tabelas, NÃO precisa de bloco transactional explícito — SQLite trata cada statement como uma micro-transação no Wrangler/D1. Basta `drop table if exists`, e dropar o child primeiro (mesmo com CASCADE) só por intenção.
+  - Migrar uma rota do tipo "draft" para um path canônico (`/api/scenarios/draft` → `/api/drafts`) **NÃO exige mudar o nome da tabela**. O `scenario_drafts` continua como está; só o path muda. Sempre que possível, evite renomear tabelas só por estética — quebra restore de snapshots e custa migração extra.
+  - `src/features/historico` virou diretório-fantasma (sem arquivos) após o cleanup. Não precisa de placeholder/README — o git já registra a remoção. Cuidado apenas com CLAUDE.md órfão dentro da pasta (não existia neste caso, mas vale checar).
+  - `src/lib/queries/CLAUDE.md` tinha aviso sobre "AppShell monta MigrateLocalSimulationDialog → exige QueryClientProvider". Após o drop, o aviso vira meio-falso: `AppShell` ainda usa hooks (via `NavUser`/`useSession`), então o provider ainda é necessário, só não é mais por causa do dialog. Atualizei o texto para refletir isso em vez de apagar a linha — o gotcha "any AppShell render needs the provider" continua valendo.
+  - Padrão para o cleanup: rode 2 greps na pasta `src/` antes de dar por encerrado — `rg "<nome-da-tabela-antiga>"` e `rg "<path-da-rota-antiga>"`. Comentários stale são o que mais costuma sobreviver; testes e prod-code já costumam ter sido cobertos pelos imports quebrados.
 ---

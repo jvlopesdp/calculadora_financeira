@@ -14,7 +14,7 @@ export interface UseDraftQueryOptions {
 }
 
 /**
- * Reads the user's saved simulator draft from D1 (`GET /api/scenarios/draft`).
+ * Reads the user's saved simulator draft from D1 (`GET /api/drafts`).
  * Gate with `{ enabled: isLoggedIn }` — anonymous users have no server draft.
  */
 export function useDraftQuery(
@@ -28,7 +28,7 @@ export function useDraftQuery(
 }
 
 /**
- * Upserts the user's simulator draft (`PUT /api/scenarios/draft`). Deliberately
+ * Upserts the user's simulator draft (`PUT /api/drafts`). Deliberately
  * does NOT invalidate `['draft']` on success: an autosave refetch could clobber
  * the input the user is still editing. Local state is the source of truth while
  * the form is open; D1 is read only on a fresh boot.

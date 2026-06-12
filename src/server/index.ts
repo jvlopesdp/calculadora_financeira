@@ -3,8 +3,8 @@ import { Hono } from "hono";
 import { createAuth } from "./auth";
 import type { Env } from "./env";
 import { requireUser, type AuthVariables } from "./middleware/require-user";
-import paymentsRouter from "./routes/payments";
-import scenariosRouter from "./routes/scenarios";
+import accountRouter from "./routes/account";
+import draftsRouter from "./routes/drafts";
 import trackerEntriesRouter from "./routes/tracker-entries";
 import trackerPlansRouter from "./routes/tracker-plans";
 
@@ -40,10 +40,10 @@ app.on(["POST", "GET"], "/api/auth/*", async (c) => {
 // Sub-apps that bring their own `requireUser` middleware are mounted here.
 // They must register BEFORE the generic `app.use("/api/*", requireUser)` below
 // so the parent middleware does not double-run on every request.
-app.route("/api/scenarios/:scenarioId/payments", paymentsRouter);
-app.route("/api/scenarios", scenariosRouter);
 app.route("/api/tracker/plans/:planId/entries", trackerEntriesRouter);
 app.route("/api/tracker/plans", trackerPlansRouter);
+app.route("/api/account", accountRouter);
+app.route("/api/drafts", draftsRouter);
 
 // Every /api/* route registered below this line requires a valid session.
 app.use("/api/*", requireUser);

@@ -13,7 +13,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -788,11 +794,9 @@ export function RentVsBuyCard() {
                   ref={horizonRegister.ref}
                 />
                 <Select
-                  id={horizonUnitId}
-                  aria-label="Unidade do horizonte"
                   value={horizonUnit}
-                  onChange={(event) => {
-                    const next = event.target.value as HorizonUnit;
+                  onValueChange={(value) => {
+                    const next = value as HorizonUnit;
                     setHorizonUnit(next);
                     const currentMonths = watched.horizonMonths;
                     if (
@@ -804,10 +808,18 @@ export function RentVsBuyCard() {
                       });
                     }
                   }}
-                  className="w-32"
                 >
-                  <option value="months">meses</option>
-                  <option value="years">anos</option>
+                  <SelectTrigger
+                    id={horizonUnitId}
+                    aria-label="Unidade do horizonte"
+                    className="w-32"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="months">meses</SelectItem>
+                    <SelectItem value="years">anos</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
               {errors.horizonMonths?.message ? (

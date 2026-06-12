@@ -2,7 +2,7 @@
 
 ## Project
 
-Financial simulation app for mortgage/loan analysis. Frontend: Vite + React SPA. Backend: a single Cloudflare Worker (Hono) serving `/api/*` and the SPA assets. Authenticated users persist their financing scenarios and payments to Cloudflare D1. The deployed domain is `calculadorafinanceira.app`.
+Financial simulation app for mortgage/loan analysis. Frontend: Vite + React SPA. Backend: a single Cloudflare Worker (Hono) serving `/api/*` and the SPA assets. Authenticated users persist their tracked financings and monthly payment entries to Cloudflare D1. The deployed domain is `calculadorafinanceira.app`.
 
 ---
 
@@ -44,12 +44,13 @@ src/
   core/finance/       # financial calculation engine (pure, Decimal.js)
   features/
     simulator/        # main simulation UI
-    historico/        # authenticated history / saved scenarios + payments
+    acompanhamento/   # "Meus Financiamentos" — list/detail/novo + tracker UI
+    account/          # account management page (/conta)
     auth/             # login, register, forgot/reset, verify-email pages
   components/ui/      # shadcn primitives
   components/finance/ # domain financial components
   lib/                # api-client, auth-client, formatters, storage, helpers
-  server/             # Cloudflare Worker (Hono): /api/auth/*, /api/scenarios/*, etc.
+  server/             # Cloudflare Worker (Hono): /api/auth/*, /api/tracker/plans/*, /api/account, /api/drafts
     routes/           # Hono sub-apps per resource
     middleware/       # requireUser, etc.
   types/              # shared domain types
@@ -99,7 +100,7 @@ Do not run simulations with invalid input.
 
 - Local React state by default for UI.
 - Use derived state — do not duplicate calculated values.
-- **D1 is the source of truth** for authenticated user data: financing scenarios (`financing_scenarios`) and their payments (`scenario_payments`). The SPA reads/writes through `/api/scenarios/*` via `src/lib/api-client.ts`.
+- **D1 is the source of truth** for authenticated user data: tracker plans (`tracker_plans`) and their monthly payment entries (`tracker_entries`). The SPA reads/writes through `/api/tracker/plans/*` via `src/lib/api-client.ts`.
 - `localStorage` is for UI preferences only (sidebar collapsed state, last unsaved simulation draft, one-time migration flags). It is **not** a substitute for D1 once the user is authenticated.
 - No Zustand, Redux, or server state libraries.
 

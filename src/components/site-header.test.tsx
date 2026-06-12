@@ -1,16 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { getPageTitle, SiteHeader } from "@/components/site-header";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
-
-vi.mock("@/features/historico/components/scenario-combobox", () => ({
-  ScenarioCombobox: () => (
-    <div data-testid="scenario-combobox">scenario-combobox</div>
-  ),
-}));
 
 function stubMatchMedia() {
   Object.defineProperty(window, "matchMedia", {
@@ -48,10 +42,14 @@ describe("getPageTitle", () => {
     ["/", "Financiamento"],
     ["/financiamento", "Financiamento"],
     ["/financiamento/qualquer-coisa", "Financiamento"],
-    ["/historico", "Histórico"],
-    ["/historico/abc", "Histórico"],
-    ["/acompanhamento", "Acompanhamento"],
+    ["/meus-financiamentos", "Meus Financiamentos"],
+    ["/meus-financiamentos/abc", "Meus Financiamentos"],
+    ["/historico", "Meus Financiamentos"],
+    ["/historico/abc", "Meus Financiamentos"],
+    ["/acompanhamento", "Meus Financiamentos"],
+    ["/acompanhamento/novo", "Meus Financiamentos"],
     ["/alugar-x-financiar", "Alugar x Financiar"],
+    ["/conta", "Minha Conta"],
     ["/rota-desconhecida", "Calculadora Financeira"],
   ])("maps %s to %s", (path, expected) => {
     expect(getPageTitle(path)).toBe(expected);
@@ -70,10 +68,17 @@ describe("SiteHeader", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the Histórico title on /historico", () => {
+  it("renders the Meus Financiamentos title on /meus-financiamentos", () => {
+    renderHeader("/meus-financiamentos");
+    expect(
+      screen.getByRole("heading", { name: "Meus Financiamentos" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the Meus Financiamentos title on the legacy /historico path", () => {
     renderHeader("/historico");
     expect(
-      screen.getByRole("heading", { name: "Histórico" }),
+      screen.getByRole("heading", { name: "Meus Financiamentos" }),
     ).toBeInTheDocument();
   });
 
@@ -89,20 +94,5 @@ describe("SiteHeader", () => {
     expect(
       screen.getByRole("button", { name: /ativar modo/i }),
     ).toBeInTheDocument();
-  });
-
-  it("renders the scenario combobox when on /historico/:id", () => {
-    renderHeader("/historico/sc_42");
-    expect(screen.getByTestId("scenario-combobox")).toBeInTheDocument();
-  });
-
-  it("does not render the scenario combobox on /historico (list page)", () => {
-    renderHeader("/historico");
-    expect(screen.queryByTestId("scenario-combobox")).not.toBeInTheDocument();
-  });
-
-  it("does not render the scenario combobox on /financiamento", () => {
-    renderHeader("/financiamento");
-    expect(screen.queryByTestId("scenario-combobox")).not.toBeInTheDocument();
   });
 });

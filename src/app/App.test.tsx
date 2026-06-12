@@ -155,9 +155,9 @@ describe("AppRoutes", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows auth modal for unauthenticated /historico without redirecting", () => {
+  it("shows auth modal for unauthenticated /meus-financiamentos", () => {
     setSession({ data: null, isPending: false });
-    renderAt("/historico");
+    renderAt("/meus-financiamentos");
     expect(
       screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
     ).toBeInTheDocument();
@@ -166,13 +166,13 @@ describe("AppRoutes", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a loading state on /historico while session is pending", () => {
+  it("shows a loading state on /meus-financiamentos while session is pending", () => {
     setSession({ data: null, isPending: true });
-    renderAt("/historico");
+    renderAt("/meus-financiamentos");
     expect(screen.getByRole("status")).toHaveTextContent(/carregando/i);
   });
 
-  it("renders /historico content when authenticated", () => {
+  it("renders /meus-financiamentos content when authenticated", () => {
     setSession({
       data: {
         user: {
@@ -196,9 +196,66 @@ describe("AppRoutes", () => {
       },
       isPending: false,
     });
+    renderAt("/meus-financiamentos");
+    expect(
+      screen.getByRole("heading", {
+        level: 3,
+        name: /^seus planos de acompanhamento$/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("redirects legacy /historico to /meus-financiamentos (auth modal still appears)", () => {
+    setSession({ data: null, isPending: false });
     renderAt("/historico");
     expect(
-      screen.getByRole("heading", { level: 3, name: /^seus financiamentos$/i }),
+      screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("redirects legacy /acompanhamento to /meus-financiamentos (auth modal still appears)", () => {
+    setSession({ data: null, isPending: false });
+    renderAt("/acompanhamento");
+    expect(
+      screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows auth modal for unauthenticated /conta", () => {
+    setSession({ data: null, isPending: false });
+    renderAt("/conta");
+    expect(
+      screen.getByRole("dialog", { name: /conteúdo exclusivo para cadastrados/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the Minha Conta page when authenticated", () => {
+    setSession({
+      data: {
+        user: {
+          id: "u_1",
+          email: "user@example.com",
+          name: "Usuário",
+          emailVerified: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        session: {
+          id: "s_1",
+          userId: "u_1",
+          token: "t",
+          expiresAt: new Date(Date.now() + 60_000),
+          ipAddress: "127.0.0.1",
+          userAgent: "test",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+      isPending: false,
+    });
+    renderAt("/conta");
+    expect(
+      screen.getByRole("heading", { level: 3, name: /minha conta/i }),
     ).toBeInTheDocument();
   });
 

@@ -23,7 +23,13 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   createTrackerPlanSchema,
   type CreateTrackerPlanFormValues,
@@ -211,12 +217,25 @@ export function AcompanhamentoNovoPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Sistema de amortização</FormLabel>
-                    <FormControl>
-                      <Select {...field}>
-                        <option value="PRICE">PRICE (parcelas fixas)</option>
-                        <option value="SAC">SAC (amortização constante)</option>
-                      </Select>
-                    </FormControl>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger
+                          ref={field.ref}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="PRICE">
+                          PRICE (parcelas fixas)
+                        </SelectItem>
+                        <SelectItem value="SAC">
+                          SAC (amortização constante)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -1,3 +1,8 @@
+/**
+ * "Meus Financiamentos" entries router. Backed by `tracker_entries` and
+ * nested under `/api/tracker/plans/:planId/entries`. Single source of truth
+ * for the user's monthly payments against a tracker plan.
+ */
 import { Hono, type Context } from "hono";
 import Decimal from "decimal.js";
 import { z } from "zod";

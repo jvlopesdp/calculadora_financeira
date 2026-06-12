@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 
 import { AppShell } from "@/app/app-shell";
 import { AuthLayout } from "@/app/auth-layout";
@@ -13,11 +13,10 @@ import { LoginPage } from "@/features/auth/pages/login-page";
 import { RegisterPage } from "@/features/auth/pages/register-page";
 import { ResetPasswordPage } from "@/features/auth/pages/reset-password-page";
 import { VerifyEmailPage } from "@/features/auth/pages/verify-email-page";
+import { AccountPage } from "@/features/account/pages/account-page";
 import { AcompanhamentoDetailPage } from "@/features/acompanhamento/pages/acompanhamento-detail-page";
 import { AcompanhamentoNovoPage } from "@/features/acompanhamento/pages/acompanhamento-novo-page";
 import { AcompanhamentoPage } from "@/features/acompanhamento/pages/acompanhamento-page";
-import { HistoricoDetalhePage } from "@/features/historico/pages/historico-detalhe-page";
-import { HistoricoPage } from "@/features/historico/pages/historico-page";
 import { AlugarXFinanciarPage } from "@/features/simulator/pages/alugar-x-financiar-page";
 import { FinanciamentoPage } from "@/features/simulator/pages/financiamento-page";
 
@@ -35,6 +34,14 @@ function RootRoute() {
     return <Navigate to="/financiamento" replace />;
   }
   return <LandingPage />;
+}
+
+/** Redireciona /historico/:scenarioId e /acompanhamento/:id para /meus-financiamentos/:id. */
+function LegacyFinancingDetailRedirect({ paramName }: { paramName: string }) {
+  const params = useParams();
+  const id = params[paramName];
+  const to = id ? `/meus-financiamentos/${id}` : "/meus-financiamentos";
+  return <Navigate to={to} replace />;
 }
 
 export function AppRoutes() {
@@ -60,21 +67,42 @@ export function AppRoutes() {
         />
 
         <Route element={<ProtectedRoute />}>
-          <Route path="/historico" element={<HistoricoPage />} />
           <Route
-            path="/historico/:scenarioId"
-            element={<HistoricoDetalhePage />}
+            path="/meus-financiamentos"
+            element={<AcompanhamentoPage />}
           />
-          <Route path="/acompanhamento" element={<AcompanhamentoPage />} />
           <Route
-            path="/acompanhamento/novo"
+            path="/meus-financiamentos/novo"
             element={<AcompanhamentoNovoPage />}
           />
           <Route
-            path="/acompanhamento/:id"
+            path="/meus-financiamentos/:id"
             element={<AcompanhamentoDetailPage />}
           />
+          <Route path="/conta" element={<AccountPage />} />
         </Route>
+
+        {/* Redirecionamentos das rotas legadas (Histórico + Acompanhamento) para a nova aba "Meus Financiamentos". */}
+        <Route
+          path="/historico"
+          element={<Navigate to="/meus-financiamentos" replace />}
+        />
+        <Route
+          path="/historico/:scenarioId"
+          element={<LegacyFinancingDetailRedirect paramName="scenarioId" />}
+        />
+        <Route
+          path="/acompanhamento"
+          element={<Navigate to="/meus-financiamentos" replace />}
+        />
+        <Route
+          path="/acompanhamento/novo"
+          element={<Navigate to="/meus-financiamentos/novo" replace />}
+        />
+        <Route
+          path="/acompanhamento/:id"
+          element={<LegacyFinancingDetailRedirect paramName="id" />}
+        />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />

@@ -92,6 +92,7 @@ function renderNavUser(initialPath = "/financiamento") {
       <SidebarProvider>
         <Routes>
           <Route path="/login" element={<div>login page</div>} />
+          <Route path="/conta" element={<div>conta page</div>} />
           <Route path="*" element={<NavUser />} />
         </Routes>
       </SidebarProvider>
@@ -165,6 +166,17 @@ describe("NavUser", () => {
     renderNavUser("/financiamento");
 
     expect(screen.getAllByText("user@example.com").length).toBeGreaterThan(0);
+  });
+
+  it("navigates to /conta when the 'Conta' menu item is selected", () => {
+    setSession(authedSession);
+    renderNavUser("/financiamento");
+
+    const contaItem = screen.getByRole("menuitem", { name: /conta/i });
+    expect(contaItem).not.toBeDisabled();
+    fireEvent.click(contaItem);
+
+    expect(screen.getByText("conta page")).toBeInTheDocument();
   });
 
   it("calls the sign-out mutation and navigates to /login on success", async () => {

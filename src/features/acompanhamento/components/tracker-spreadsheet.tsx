@@ -18,7 +18,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CurrencyInput } from "@/components/finance/currency-input";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import type { TrackerCurves } from "@/features/acompanhamento/lib/build-curves";
@@ -128,11 +134,18 @@ export function TrackerSpreadsheet({
       const normalRow = curves.normal[month - 1];
       const realizedRow = realizedMonths[month - 1];
       const settled = realizedRow === undefined;
+      // "Parcela prevista" reflete a parcela vigente do mês — após um
+      // lançamento `reduce_installment`, todas as parcelas seguintes têm
+      // `scheduledInstallment` recalculado pelo engine (US-012). Meses já
+      // quitados pela antecipação caem no cronograma original.
+      const scheduledInstallment = settled
+        ? (normalRow?.installment ?? new Decimal(0))
+        : realizedRow.scheduledInstallment;
       result.push({
         monthIndex: month,
         dueDate: dueDateBR(plan.start_date, month - 1),
         dueIso: dueDateIso(plan.start_date, month - 1),
-        scheduledInstallment: normalRow?.installment ?? new Decimal(0),
+        scheduledInstallment,
         entry: entryByMonth.get(month) ?? null,
         balanceAfter: settled ? null : realizedRow.balance,
         settled,
@@ -283,18 +296,24 @@ export function TrackerSpreadsheet({
       header: "Modo",
       cell: (r) => (
         <Select
-          aria-label={`Modo do mês ${r.monthIndex}`}
-          className="w-40"
           value={modeValue(r)}
           disabled={r.settled || upsert.isPending}
-          onChange={(event) =>
-            handleModeChange(r, event.target.value as ApplyMode)
-          }
+          onValueChange={(value) => handleModeChange(r, value as ApplyMode)}
         >
-          <option value="reduce_term">{APPLY_MODE_LABEL.reduce_term}</option>
-          <option value="reduce_installment">
-            {APPLY_MODE_LABEL.reduce_installment}
-          </option>
+          <SelectTrigger
+            aria-label={`Modo do mês ${r.monthIndex}`}
+            className="w-40"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="reduce_term">
+              {APPLY_MODE_LABEL.reduce_term}
+            </SelectItem>
+            <SelectItem value="reduce_installment">
+              {APPLY_MODE_LABEL.reduce_installment}
+            </SelectItem>
+          </SelectContent>
         </Select>
       ),
     },

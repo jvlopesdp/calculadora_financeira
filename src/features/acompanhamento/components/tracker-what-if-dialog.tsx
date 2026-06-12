@@ -13,7 +13,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { TrackerCurves } from "@/features/acompanhamento/lib/build-curves";
 import { dueDateBR, dueDateIso } from "@/features/acompanhamento/lib/due-date";
 import { simulateWhatIf } from "@/features/acompanhamento/lib/simulate-what-if";
@@ -137,20 +143,25 @@ export function TrackerWhatIfDialog({
             <div className="flex flex-col gap-1.5">
               <Label htmlFor={monthSelectId}>Mês</Label>
               <Select
-                id={monthSelectId}
-                value={month}
-                onChange={(event) => {
-                  setMonth(Number(event.target.value));
+                value={String(month)}
+                onValueChange={(value) => {
+                  setMonth(Number(value));
                   setError(null);
                 }}
               >
-                {Array.from({ length: plan.term_months }, (_, i) => i + 1).map(
-                  (m) => (
-                    <option key={m} value={m}>
+                <SelectTrigger id={monthSelectId}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from(
+                    { length: plan.term_months },
+                    (_, i) => i + 1,
+                  ).map((m) => (
+                    <SelectItem key={m} value={String(m)}>
                       {m}
-                    </option>
-                  ),
-                )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
 
@@ -170,14 +181,18 @@ export function TrackerWhatIfDialog({
             <div className="flex flex-col gap-1.5">
               <Label htmlFor={modeSelectId}>Modo</Label>
               <Select
-                id={modeSelectId}
                 value={applyMode}
-                onChange={(event) =>
-                  setApplyMode(event.target.value as ApplyMode)
-                }
+                onValueChange={(value) => setApplyMode(value as ApplyMode)}
               >
-                <option value="reduce_term">Reduzir prazo</option>
-                <option value="reduce_installment">Reduzir parcela</option>
+                <SelectTrigger id={modeSelectId}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="reduce_term">Reduzir prazo</SelectItem>
+                  <SelectItem value="reduce_installment">
+                    Reduzir parcela
+                  </SelectItem>
+                </SelectContent>
               </Select>
             </div>
           </div>

@@ -76,6 +76,7 @@ export function realizedSchedule(
       months.push({
         monthIndex: month,
         installment: owed,
+        scheduledInstallment,
         interest,
         amortization: balance,
         balance: ZERO,
@@ -89,13 +90,23 @@ export function realizedSchedule(
     months.push({
       monthIndex: month,
       installment: payment,
+      scheduledInstallment,
       interest,
       amortization,
       balance,
     });
 
     remainingTerm -= 1;
-    if (entry?.applyMode === "reduce_installment" && remainingTerm > 0) {
+    // Recalcula a parcela vigente apenas quando o lançamento traz amortização
+    // extra (paid > scheduled). Pagar exatamente a parcela vigente não muda
+    // o cronograma — recalcular sem extra introduz drift de arredondamento
+    // (ex.: PRICE recomputado para o mesmo termo pode oscilar em ±R$ 0,02).
+    const extraPaid = payment.minus(scheduledInstallment);
+    if (
+      entry?.applyMode === "reduce_installment" &&
+      remainingTerm > 0 &&
+      extraPaid.greaterThan(PAYOFF_TOLERANCE)
+    ) {
       if (isSac) {
         currentAmortization = roundMoney(balance.div(remainingTerm));
       } else {

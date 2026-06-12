@@ -1,7 +1,6 @@
 import {
   IconCalculator,
-  IconChartLine,
-  IconHistory,
+  IconReceipt2,
   IconScale,
 } from "@tabler/icons-react";
 import { Link } from "react-router-dom";
@@ -22,8 +21,11 @@ import {
 
 const baseNavMain: NavMainItem[] = [
   { title: "Financiamento", url: "/financiamento", icon: IconCalculator },
-  { title: "Histórico", url: "/historico", icon: IconHistory },
-  { title: "Acompanhamento", url: "/acompanhamento", icon: IconChartLine },
+  {
+    title: "Meus Financiamentos",
+    url: "/meus-financiamentos",
+    icon: IconReceipt2,
+  },
   { title: "Alugar x Financiar", url: "/alugar-x-financiar", icon: IconScale },
 ];
 
@@ -38,7 +40,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
               className="h-auto data-[slot=sidebar-menu-button]:!p-1.5"
             >
               <Link to="/financiamento">
-                <BrandLogo className="hidden h-8 w-auto md:block" />
+                <BrandLogo className="hidden h-8 w-auto md:inline-block" />
                 <BrandMark className="h-8 w-auto md:hidden" />
               </Link>
             </SidebarMenuButton>

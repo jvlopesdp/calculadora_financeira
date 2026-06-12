@@ -12,7 +12,20 @@ export interface TrackerPlanInput {
 
 export interface ScheduleMonth {
   monthIndex: number;
+  /**
+   * Valor efetivamente desembolsado no mês. Em meses sem lançamento extra
+   * (Normal) e em `realizedSchedule`/`goalSchedule` sem antecipação,
+   * `installment === scheduledInstallment`.
+   */
   installment: Decimal;
+  /**
+   * Parcela "prevista" (vigente) para o mês — o que seria pago sem extras.
+   * Em `realizedSchedule`, é a parcela vigente no início do mês *antes* de
+   * aplicar o lançamento; em meses subsequentes a um lançamento
+   * `reduce_installment`, reflete o novo valor (reduzido) e por isso difere
+   * da parcela do cronograma `normalSchedule`.
+   */
+  scheduledInstallment: Decimal;
   interest: Decimal;
   amortization: Decimal;
   balance: Decimal;
@@ -39,6 +52,7 @@ export function normalSchedule(plan: TrackerPlanInput): ScheduleMonth[] {
   return rows.map((row) => ({
     monthIndex: row.month,
     installment: row.installment,
+    scheduledInstallment: row.installment,
     interest: row.interest,
     amortization: row.amortization,
     balance: row.balance,

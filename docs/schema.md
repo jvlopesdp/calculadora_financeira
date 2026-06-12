@@ -90,53 +90,80 @@ Index: `verification_identifier_idx` on `identifier`.
 
 ---
 
-## `0002_domain.sql` — App domain tables
+## `0002_domain.sql` — App domain tables (historical)
 
-App-specific tables. Naming convention is **snake_case** (distinct from Better
-Auth's camelCase) because these are our own tables and follow the conventions
-in the PRD. Monetary values are stored as integer **cents** and rates as
-**basis points** (1 bp = 0.01 %) so the Decimal.js engine can rebuild values
-without floating-point loss.
+This migration originally created the `financing_scenarios` + `payment_history`
+tables. Both were dropped in `0007_drop_legacy_financing_tables.sql` after
+their rows were migrated to the canonical `tracker_plans` + `tracker_entries`
+schema in `0006_unify_financing_to_tracker.sql`. The migration file is kept
+for historical replay only — no current code reads these tables.
 
-### `financing_scenarios`
+---
 
-One row per financing the user is tracking. Soft-deleted via `archived_at`.
+## `0004_scenario_drafts.sql` — Simulator draft
 
-| Column                      | Type    | Notes                                              |
-| --------------------------- | ------- | -------------------------------------------------- |
-| `id`                        | TEXT PK | App-generated UUID/ULID                            |
-| `user_id`                   | TEXT    | required, FK → `user(id)` ON DELETE CASCADE        |
-| `name`                      | TEXT    | nullable (UI may default to "Financiamento #N")    |
-| `property_value_cents`      | INTEGER | required, value of the property in cents           |
-| `down_payment_cents`        | INTEGER | required                                           |
-| `term_months`               | INTEGER | required, original term in months                  |
-| `annual_rate_basis_points`  | INTEGER | required, e.g. 1080 = 10.80 % a.a.                 |
-| `start_date`                | TEXT    | required, ISO-8601 date `YYYY-MM-DD`               |
-| `created_at`                | INTEGER | required, Unix epoch milliseconds                  |
-| `archived_at`               | INTEGER | nullable, Unix epoch ms when soft-deleted          |
+One row per user holding the opaque JSON blob the simulator autosaves so an
+authenticated user can resume an unfinished session across devices. Served by
+`/api/drafts` (GET/PUT).
 
-Index: `idx_scenarios_user` on `user_id` — supports the per-user listing query.
+### `scenario_drafts`
 
-### `payment_history`
+| Column       | Type    | Notes                                       |
+| ------------ | ------- | ------------------------------------------- |
+| `user_id`    | TEXT PK | FK → `user(id)` ON DELETE CASCADE           |
+| `payload`    | TEXT    | required, opaque JSON owned by the simulator |
+| `updated_at` | INTEGER | required, Unix epoch milliseconds            |
 
-Chronological record of real payments registered against a scenario. Used by
-the `replayPayments` engine (US-029) to derive current state from inputs +
-payments.
+---
 
-| Column                  | Type    | Notes                                                         |
-| ----------------------- | ------- | ------------------------------------------------------------- |
-| `id`                    | TEXT PK |                                                               |
-| `scenario_id`           | TEXT    | required, FK → `financing_scenarios(id)` ON DELETE CASCADE    |
-| `reference_month`       | TEXT    | required, `YYYY-MM` — which installment this payment maps to  |
-| `payment_date`          | TEXT    | required, `YYYY-MM-DD` — actual day the user paid             |
-| `amount_paid_cents`     | INTEGER | required                                                      |
-| `payment_type`          | TEXT    | required, e.g. `parcela` \| `amortizacao_extra` \| `misto`    |
-| `amortization_strategy` | TEXT    | required, e.g. `prazo` \| `parcela`                           |
-| `notes`                 | TEXT    | nullable, free-text                                           |
-| `created_at`            | INTEGER | required, Unix epoch milliseconds                             |
+## `0005_tracker.sql` — "Meus Financiamentos" tables
 
-Index: `idx_payments_scenario_month` on `(scenario_id, reference_month)` —
-supports `replayPayments` and the chronological list view.
+App-specific tables that back the unified "Meus Financiamentos" feature.
+Naming convention is **snake_case** (distinct from Better Auth's camelCase).
+Monetary values are stored as integer **cents** and rates as **basis points**
+(1 bp = 0.01 %) so the Decimal.js engine can rebuild values without
+floating-point loss.
+
+### `tracker_plans`
+
+One row per financing plan the user is tracking. The single source of truth
+for the user's financings (post US-020).
+
+| Column                       | Type    | Notes                                              |
+| ---------------------------- | ------- | -------------------------------------------------- |
+| `id`                         | TEXT PK | App-generated string ID                            |
+| `user_id`                    | TEXT    | required, FK → `user(id)` ON DELETE CASCADE        |
+| `name`                       | TEXT    | required                                           |
+| `property_value_cents`       | INTEGER | required                                           |
+| `down_payment_cents`         | INTEGER | required                                           |
+| `term_months`                | INTEGER | required, original term in months                  |
+| `annual_rate_bp`             | INTEGER | required, e.g. 1080 = 10.80 % a.a.                 |
+| `modality`                   | TEXT    | required, `PRICE` \| `SAC` (check constraint)      |
+| `start_date`                 | TEXT    | required, ISO-8601 date `YYYY-MM-DD`               |
+| `target_monthly_total_cents` | INTEGER | required, fixed total used by the "Meta" curve     |
+| `created_at`                 | INTEGER | required, Unix epoch milliseconds                  |
+| `updated_at`                 | INTEGER | required, Unix epoch milliseconds                  |
+
+Index: `tracker_plans_user_id_idx` on `user_id`.
+
+### `tracker_entries`
+
+Manual monthly payment entries applied to a tracker plan. Used by the
+`buildCurves` engine to derive the "Realizado" curve from inputs + entries.
+
+| Column              | Type    | Notes                                                                          |
+| ------------------- | ------- | ------------------------------------------------------------------------------ |
+| `id`                | TEXT PK |                                                                                |
+| `plan_id`           | TEXT    | required, FK → `tracker_plans(id)` ON DELETE CASCADE                           |
+| `month_index`       | INTEGER | required, 1-based month into the schedule                                      |
+| `paid_amount_cents` | INTEGER | required                                                                       |
+| `paid_at`           | TEXT    | required, `YYYY-MM-DD` — actual day the user paid                              |
+| `apply_mode`        | TEXT    | required, `reduce_term` \| `reduce_installment` (check constraint)             |
+| `note`              | TEXT    | nullable, free-text                                                            |
+| `created_at`        | INTEGER | required, Unix epoch milliseconds                                              |
+
+Unique: `(plan_id, month_index)` — at most one entry per scheduled month.
+Index: `tracker_entries_plan_id_idx` on `(plan_id, month_index)`.
 
 ---
 

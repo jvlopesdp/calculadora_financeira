@@ -1,6 +1,13 @@
 import { useEffect } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Radix Select uses portals / pointer-capture APIs that don't work in jsdom.
+// Render a native <select> instead so fireEvent.change keeps working.
+vi.mock("@/components/ui/select", async () => {
+  const mod = await import("@/tests/select-mock");
+  return mod.selectMock;
+});
 
 import { AmortizationTable } from "@/features/simulator/components/amortization-table";
 import { SimulationProvider } from "@/features/simulator/hooks/simulation-provider";

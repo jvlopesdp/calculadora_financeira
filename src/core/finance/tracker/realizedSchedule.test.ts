@@ -165,4 +165,113 @@ describe("realizedSchedule", () => {
       expect(result.paidOffAtMonth).toBeNull();
     });
   });
+
+  // US-012: parcela prevista (scheduledInstallment) deve refletir o impacto
+  // dos lançamentos sobre o cronograma — reduzir prazo mantém a parcela,
+  // reduzir parcela diminui o valor das parcelas seguintes; pagamentos sem
+  // excedente não afetam a curva.
+  describe("scheduledInstallment refletindo o modo do lançamento (US-012)", () => {
+    const SIX_MONTH_PLAN: TrackerPlanInput = {
+      ...PRICE_PLAN,
+      termMonths: 6,
+    };
+
+    it("reduce_term: parcela prevista permanece a original em todos os meses", () => {
+      const { months } = realizedSchedule(
+        SIX_MONTH_PLAN,
+        entries([1, 500, "reduce_term"]),
+      );
+      const original = normalSchedule(SIX_MONTH_PLAN)[0]!.installment.toString();
+      for (const row of months) {
+        expect(row.scheduledInstallment.toString()).toBe(original);
+      }
+    });
+
+    it("reduce_installment: parcela prevista cai nos meses seguintes ao lançamento", () => {
+      const { months } = realizedSchedule(
+        SIX_MONTH_PLAN,
+        entries([1, 500, "reduce_installment"]),
+      );
+      const original = normalSchedule(SIX_MONTH_PLAN)[0]!.installment;
+      // Mês 1: a parcela prevista é a original (antes da redução).
+      expect(months[0]!.scheduledInstallment.equals(original)).toBe(true);
+      // Mês 2 em diante: parcelas previstas são estritamente menores e iguais
+      // entre si (recalculadas uma vez, mantidas para o resto do prazo).
+      const reduced = months[1]!.scheduledInstallment;
+      expect(reduced.lessThan(original)).toBe(true);
+      for (let i = 2; i < months.length; i++) {
+        expect(months[i]!.scheduledInstallment.toString()).toBe(
+          reduced.toString(),
+        );
+      }
+      // Garante que a "Parcela prevista" exibida na UI bate com o valor
+      // efetivamente pago em meses sem lançamento.
+      expect(months[1]!.installment.toString()).toBe(reduced.toString());
+    });
+
+    it("pagamento igual à parcela (sem excedente) não altera o cronograma", () => {
+      // PRICE: lançar exatamente a parcela vigente em alguns meses não pode
+      // alterar o saldo ao fim de cada mês nem a parcela vigente para os
+      // meses seguintes — o lançamento não traz amortização extra.
+      const original = normalSchedule(SIX_MONTH_PLAN);
+      const baseInstallment = original[0]!.installment;
+      const { months, paidOffAtMonth } = realizedSchedule(
+        SIX_MONTH_PLAN,
+        entries(
+          [1, baseInstallment.toNumber(), "reduce_installment"],
+          [2, baseInstallment.toNumber(), "reduce_term"],
+        ),
+      );
+      expect(paidOffAtMonth).toBe(original.length);
+      expect(months).toHaveLength(original.length);
+      // Saldo de cada mês deve bater com o cronograma normal (tolerância 1 cent).
+      months.forEach((row, i) => {
+        expect(
+          row.balance.minus(original[i]!.balance).abs().lessThanOrEqualTo(ONE_CENT),
+        ).toBe(true);
+      });
+      // Parcela vigente nos meses sem lançamento (3..penúltimo) continua igual
+      // à parcela base do cronograma normal — nenhum recálculo foi disparado.
+      for (let i = 2; i < months.length - 1; i++) {
+        expect(months[i]!.scheduledInstallment.toString()).toBe(
+          baseInstallment.toString(),
+        );
+      }
+    });
+
+    it("pagamento parcial (menor que a parcela) reduz menos o saldo sem disparar recálculo", () => {
+      // O usuário paga R$ 50 a menos do que a parcela vigente do mês 1. A UI
+      // bloqueia esse cenário na validação, mas o engine não pode quebrar:
+      // amortiza só o que foi pago e mantém a parcela vigente nos meses
+      // seguintes (sem extra, sem recálculo de PRICE).
+      const original = normalSchedule(SIX_MONTH_PLAN);
+      const baseInstallment = original[0]!.installment;
+      const partial = baseInstallment.toNumber() - 50;
+      const { months } = realizedSchedule(
+        SIX_MONTH_PLAN,
+        entries([1, partial, "reduce_installment"]),
+      );
+      // Mês 1: parcela vigente preservada; `installment` reflete o pago.
+      expect(months[0]!.scheduledInstallment.toString()).toBe(
+        baseInstallment.toString(),
+      );
+      expect(months[0]!.installment.toNumber()).toBeCloseTo(partial, 2);
+      // Saldo do mês 1 fica ACIMA do normal (amortizou menos).
+      expect(months[0]!.balance.greaterThan(original[0]!.balance)).toBe(true);
+      // Saldo continua não-negativo e monotonicamente decrescente.
+      for (let i = 0; i < months.length; i++) {
+        expect(months[i]!.balance.greaterThanOrEqualTo(0)).toBe(true);
+        if (i > 0) {
+          expect(
+            months[i]!.balance.lessThanOrEqualTo(months[i - 1]!.balance),
+          ).toBe(true);
+        }
+      }
+      // Como não houve amortização extra, a parcela vigente do mês 2
+      // permanece a original — sem recálculo de PRICE.
+      expect(months[1]!.scheduledInstallment.toString()).toBe(
+        baseInstallment.toString(),
+      );
+    });
+  });
 });

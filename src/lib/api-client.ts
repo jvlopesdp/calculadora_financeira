@@ -3,21 +3,21 @@
  * require auth rely on the Better Auth session cookie (sent automatically by
  * `credentials: "same-origin"`). Non-2xx responses throw an `ApiError` so
  * callers can `try/catch` without re-reading `res.ok`.
+ *
+ * Resource layout (post US-020):
+ *   - **"Meus Financiamentos"** — `tracker_plans` + `tracker_entries`, served
+ *     under `/api/tracker/plans/*`. Use the `*TrackerPlan*` / `*TrackerEntry*`
+ *     helpers below.
+ *   - **Account** — `/api/account` (GET/PATCH/DELETE) and Better Auth's
+ *     `/api/auth/*` (sign-in, sign-out, change-password, etc.).
+ *   - **Simulator drafts** — `/api/drafts` (opaque JSON blob, one per user).
  */
 import type { AuthSession, AuthUser } from "./auth-client";
 
-export interface ScenarioApi {
-  id: string;
-  user_id: string;
-  name: string | null;
-  property_value_cents: number;
-  down_payment_cents: number;
-  term_months: number;
-  annual_rate_basis_points: number;
-  start_date: string;
-  created_at: number;
-  archived_at: number | null;
-}
+// ---------------------------------------------------------------------------
+// "Meus Financiamentos" resource. Backed by `tracker_plans` + `tracker_entries`
+// and served under `/api/tracker/plans/*`.
+// ---------------------------------------------------------------------------
 
 export interface TrackerPlanApi {
   id: string;
@@ -49,53 +49,6 @@ export interface TrackerPlanDetail {
   plan: TrackerPlanApi;
   entries: TrackerEntryApi[];
 }
-
-export interface PaymentApi {
-  id: string;
-  scenario_id: string;
-  reference_month: string;
-  payment_date: string;
-  amount_paid_cents: number;
-  payment_type: string;
-  amortization_strategy: string;
-  notes: string | null;
-  created_at: number;
-}
-
-export interface CreateScenarioInput {
-  name: string;
-  propertyValue: number;
-  downPayment: number;
-  termMonths: number;
-  annualRate: number;
-  startDate: string;
-}
-
-export interface UpdateScenarioInput {
-  name?: string;
-  archived?: boolean;
-}
-
-export type PaymentType = "parcela" | "amortizacao_extra" | "misto";
-export type AmortizationStrategy = "prazo" | "parcela";
-
-export interface CreatePaymentInput {
-  referenceMonth: string;
-  paymentDate: string;
-  amountPaid: number;
-  paymentType: PaymentType;
-  amortizationStrategy: AmortizationStrategy;
-  notes?: string;
-}
-
-export type UpdatePaymentInput = {
-  referenceMonth?: string;
-  paymentDate?: string;
-  amountPaid?: number;
-  paymentType?: PaymentType;
-  amortizationStrategy?: AmortizationStrategy;
-  notes?: string | null;
-};
 
 export class ApiError extends Error {
   status: number;
@@ -135,101 +88,6 @@ async function jsonFetch<T>(input: string, init?: RequestInit): Promise<T> {
   }
 
   return body as T;
-}
-
-export async function listScenarios(): Promise<ScenarioApi[]> {
-  const body = await jsonFetch<{ scenarios: ScenarioApi[] }>("/api/scenarios");
-  return body.scenarios;
-}
-
-export async function createScenario(
-  input: CreateScenarioInput,
-): Promise<ScenarioApi> {
-  const body = await jsonFetch<{ scenario: ScenarioApi }>("/api/scenarios", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
-  return body.scenario;
-}
-
-export async function getScenario(id: string): Promise<ScenarioApi> {
-  const body = await jsonFetch<{ scenario: ScenarioApi }>(
-    `/api/scenarios/${encodeURIComponent(id)}`,
-  );
-  return body.scenario;
-}
-
-export async function updateScenario(
-  id: string,
-  input: UpdateScenarioInput,
-): Promise<ScenarioApi> {
-  const body = await jsonFetch<{ scenario: ScenarioApi }>(
-    `/api/scenarios/${encodeURIComponent(id)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(input),
-    },
-  );
-  return body.scenario;
-}
-
-export async function deleteScenario(id: string): Promise<ScenarioApi> {
-  const body = await jsonFetch<{ scenario: ScenarioApi }>(
-    `/api/scenarios/${encodeURIComponent(id)}`,
-    {
-      method: "DELETE",
-    },
-  );
-  return body.scenario;
-}
-
-export async function listPayments(scenarioId: string): Promise<PaymentApi[]> {
-  const body = await jsonFetch<{ payments: PaymentApi[] }>(
-    `/api/scenarios/${encodeURIComponent(scenarioId)}/payments`,
-  );
-  return body.payments;
-}
-
-export async function createPayment(
-  scenarioId: string,
-  input: CreatePaymentInput,
-): Promise<PaymentApi> {
-  const body = await jsonFetch<{ payment: PaymentApi }>(
-    `/api/scenarios/${encodeURIComponent(scenarioId)}/payments`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return body.payment;
-}
-
-export async function updatePayment(
-  scenarioId: string,
-  paymentId: string,
-  input: UpdatePaymentInput,
-): Promise<PaymentApi> {
-  const body = await jsonFetch<{ payment: PaymentApi }>(
-    `/api/scenarios/${encodeURIComponent(scenarioId)}/payments/${encodeURIComponent(paymentId)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(input),
-    },
-  );
-  return body.payment;
-}
-
-export async function deletePayment(
-  scenarioId: string,
-  paymentId: string,
-): Promise<PaymentApi> {
-  const body = await jsonFetch<{ payment: PaymentApi }>(
-    `/api/scenarios/${encodeURIComponent(scenarioId)}/payments/${encodeURIComponent(paymentId)}`,
-    {
-      method: "DELETE",
-    },
-  );
-  return body.payment;
 }
 
 export interface CreateTrackerPlanInput {
@@ -312,6 +170,56 @@ export async function deleteTrackerPlan(id: string): Promise<TrackerPlanApi> {
   return body.plan;
 }
 
+// ---------------------------------------------------------------------------
+// Account management (US-015..US-019). Backed by `/api/account` and Better
+// Auth's `/api/auth/*`. The SPA reads/updates the authenticated user's profile
+// through these helpers and lets Better Auth handle email verification and
+// password change.
+// ---------------------------------------------------------------------------
+
+export interface AccountApi {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  createdAt: string | null;
+}
+
+export interface UpdateAccountInput {
+  name?: string;
+  email?: string;
+}
+
+export interface UpdateAccountResponse {
+  account: AccountApi;
+  emailVerificationSent: boolean;
+}
+
+export async function getAccount(): Promise<AccountApi> {
+  const body = await jsonFetch<{ account: AccountApi }>("/api/account");
+  return body.account;
+}
+
+export async function updateAccount(
+  input: UpdateAccountInput,
+): Promise<UpdateAccountResponse> {
+  return jsonFetch<UpdateAccountResponse>("/api/account", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export interface DeleteAccountInput {
+  password: string;
+}
+
+export async function deleteAccount(input: DeleteAccountInput): Promise<void> {
+  await jsonFetch<{ success: true }>("/api/account", {
+    method: "DELETE",
+    body: JSON.stringify(input),
+  });
+}
+
 export interface SessionResponse {
   user: AuthUser;
   session: AuthSession;
@@ -333,18 +241,15 @@ export interface DraftResponse {
 
 /** Reads the authenticated user's single saved simulator draft. */
 export async function getDraft(): Promise<DraftResponse> {
-  return jsonFetch<DraftResponse>("/api/scenarios/draft");
+  return jsonFetch<DraftResponse>("/api/drafts");
 }
 
 /** Upserts the authenticated user's simulator draft (opaque JSON object). */
 export async function putDraft(
   payload: object,
 ): Promise<{ draft: unknown; updated_at: number }> {
-  return jsonFetch<{ draft: unknown; updated_at: number }>(
-    "/api/scenarios/draft",
-    {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    },
-  );
+  return jsonFetch<{ draft: unknown; updated_at: number }>("/api/drafts", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }

@@ -2,7 +2,7 @@
  * Draft persistence for the Simulador's financing form. The "draft" is the raw
  * (possibly partial / invalid) financing input so a page refresh never loses
  * what the user typed. It is mirrored to `localStorage` (always) and, for
- * authenticated users, to D1 via `PUT /api/scenarios/draft`.
+ * authenticated users, to D1 via `PUT /api/drafts`.
  *
  * Pure helpers over `window.localStorage`, wrapped in try/catch so private-mode
  * or disabled storage never throws. The shape mirrors the financing form's raw

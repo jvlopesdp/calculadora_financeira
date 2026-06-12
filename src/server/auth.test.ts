@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildResetUrl, buildVerificationUrl } from "./auth";
+import {
+  buildChangeEmailUrl,
+  buildResetUrl,
+  buildVerificationUrl,
+} from "./auth";
 
 // Tests the pure URL-rewriting helpers directly — no betterAuth() instantiation,
 // no background D1 init promise, no unhandled rejections under load (same
@@ -65,5 +69,25 @@ describe("buildResetUrl", () => {
   it("falls back to an empty token for a malformed URL", () => {
     const result = buildResetUrl(PUBLIC_APP_URL, "not-a-url");
     expect(result).toBe(`${PUBLIC_APP_URL}/reset-password?token=`);
+  });
+});
+
+describe("buildChangeEmailUrl", () => {
+  it("rewrites the Better Auth change-email URL to the SPA /verify-email route", () => {
+    const original =
+      "https://api.example.test/api/auth/verify-email?token=change-tok";
+    const result = buildChangeEmailUrl(PUBLIC_APP_URL, original);
+    expect(result).toBe(`${PUBLIC_APP_URL}/verify-email?token=change-tok`);
+  });
+
+  it("trims a trailing slash from the public app URL", () => {
+    const original = "https://api.example.test/api/auth/verify-email?token=t";
+    const result = buildChangeEmailUrl(`${PUBLIC_APP_URL}/`, original);
+    expect(result).toBe(`${PUBLIC_APP_URL}/verify-email?token=t`);
+  });
+
+  it("falls back to an empty token for a malformed URL", () => {
+    const result = buildChangeEmailUrl(PUBLIC_APP_URL, "not-a-url");
+    expect(result).toBe(`${PUBLIC_APP_URL}/verify-email?token=`);
   });
 });

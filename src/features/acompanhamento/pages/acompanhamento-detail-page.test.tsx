@@ -21,14 +21,20 @@ vi.mock("react-router-dom", async () => {
 
 const useTrackerPlanMock = vi.fn();
 const deleteMutateAsync = vi.fn();
+const upsertEntryMutateAsync = vi.fn();
 vi.mock("@/lib/queries/tracker-plans", () => ({
   useTrackerPlan: () => useTrackerPlanMock(),
   useDeleteTrackerPlan: () => ({
     mutateAsync: deleteMutateAsync,
     isPending: false,
   }),
-  // The spreadsheet (rendered by the page) uses these entry mutations.
-  useUpsertTrackerEntry: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // The spreadsheet and the what-if dialog (both rendered by the page) share
+  // the same entry mutations — keep a stable mock so the page-level tests can
+  // assert the unified resource is hit on "Aplicar este lançamento".
+  useUpsertTrackerEntry: () => ({
+    mutateAsync: upsertEntryMutateAsync,
+    isPending: false,
+  }),
   useDeleteTrackerEntry: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
@@ -37,6 +43,14 @@ vi.mock("@/lib/queries/tracker-plans", () => ({
 vi.mock("@/features/acompanhamento/components/tracker-curves-chart", () => ({
   TrackerCurvesChart: () => <div data-testid="tracker-curves-chart" />,
 }));
+
+// The what-if dialog and the spreadsheet both render Radix Select, which
+// depends on portals/pointer-capture APIs jsdom doesn't ship — swap for the
+// project's standard native-<select> mock.
+vi.mock("@/components/ui/select", async () => {
+  const mod = await import("@/tests/select-mock");
+  return mod.selectMock;
+});
 
 // Passthrough Dialog so the confirmation content renders when `open` is true,
 // avoiding the Radix portal dance in jsdom.
@@ -118,6 +132,7 @@ describe("AcompanhamentoDetailPage", () => {
   beforeEach(() => {
     navigateMock.mockReset();
     deleteMutateAsync.mockReset();
+    upsertEntryMutateAsync.mockReset();
     useTrackerPlanMock.mockReset();
   });
 
@@ -135,26 +150,26 @@ describe("AcompanhamentoDetailPage", () => {
     expect(toolbar.getByText(/01\/01\/2025/)).toBeInTheDocument();
   });
 
-  it("shows '—' for every KPI when there are no entries", () => {
+  it("shows '—' with the empty-state hint for every KPI when there are no entries", () => {
     setDetail(makePlan(), []);
     renderPage();
 
+    for (const slug of [
+      "ja-pago",
+      "saldo-devedor",
+      "parcelas-restantes",
+      "juros-pagos-ate-agora",
+      "economia-vs-cronograma-original",
+      "prazo-reduzido",
+    ]) {
+      expect(
+        screen.getByTestId(`kpi-card-${slug}-value`),
+      ).toHaveTextContent("—");
+    }
+    // The hint text appears once per placeholder (six cards).
     expect(
-      screen.getByTestId("kpi-card-saldo-atual-value"),
-    ).toHaveTextContent("—");
-    expect(
-      screen.getByTestId("kpi-card-juros-pagos-ate-agora-value"),
-    ).toHaveTextContent("—");
-    expect(
-      screen.getByTestId(
-        "kpi-card-economia-de-juros-vs-normal-realizado-value",
-      ),
-    ).toHaveTextContent("—");
-    expect(
-      screen.getByTestId(
-        "kpi-card-meses-reduzidos-vs-normal-realizado-value",
-      ),
-    ).toHaveTextContent("—");
+      screen.getAllByText(/Registre lançamentos/i),
+    ).toHaveLength(6);
   });
 
   it("computes the KPIs from the curves when entries exist", () => {
@@ -162,17 +177,64 @@ describe("AcompanhamentoDetailPage", () => {
     renderPage();
 
     expect(
-      screen.getByTestId("kpi-card-saldo-atual-value"),
+      screen.getByTestId("kpi-card-saldo-devedor-value"),
     ).toHaveTextContent("R$");
     expect(
       screen.getByTestId("kpi-card-juros-pagos-ate-agora-value"),
     ).toHaveTextContent("R$");
-    // Extra payments cut the term, so months reduced is positive (not "—").
-    const reduced = screen.getByTestId(
-      "kpi-card-meses-reduzidos-vs-normal-realizado-value",
-    );
+    expect(
+      screen.getByTestId("kpi-card-ja-pago-value"),
+    ).toHaveTextContent("%");
+    expect(
+      screen.getByTestId("kpi-card-parcelas-restantes-value"),
+    ).toHaveTextContent(/^\d+$/);
+    // Extra payments cut the term, so prazo reduzido is positive (not "—").
+    const reduced = screen.getByTestId("kpi-card-prazo-reduzido-value");
     expect(reduced).not.toHaveTextContent("—");
     expect(reduced).toHaveTextContent(/m[êe]s/);
+  });
+
+  it("renders the Previsto x Real chart wired with the loaded detail", () => {
+    setDetail(makePlan(), [makeEntry(1), makeEntry(2)]);
+    renderPage();
+    expect(screen.getByTestId("tracker-curves-chart")).toBeInTheDocument();
+  });
+
+  // US-013: KPIs and chart recompute the moment the plan detail cache
+  // changes — i.e. a save/edit/delete from `useUpsertTrackerEntry` /
+  // `useDeleteTrackerEntry` updates the cache and the page reflects it
+  // without any reload, because both `curves` and `kpis` are derived via
+  // `useMemo([detail])` / `useMemo([curves])`.
+  it("recomputes KPIs and re-renders the chart when entries change without reloading", () => {
+    setDetail(makePlan(), []);
+    const view = renderPage();
+
+    // Empty state: every KPI is "—" and the chart is on screen.
+    expect(
+      screen.getByTestId("kpi-card-saldo-devedor-value"),
+    ).toHaveTextContent("—");
+    expect(
+      screen.getByTestId("kpi-card-ja-pago-value"),
+    ).toHaveTextContent("—");
+    expect(screen.getByTestId("tracker-curves-chart")).toBeInTheDocument();
+
+    // Cache mutation: entries appear (mirrors what an optimistic upsert does).
+    setDetail(makePlan(), [makeEntry(1), makeEntry(2), makeEntry(3)]);
+    view.rerender(
+      <MemoryRouter>
+        <AcompanhamentoDetailPage />
+      </MemoryRouter>,
+    );
+
+    // Same KPI cards now carry computed values (no "—"), and the chart is
+    // still mounted (it received the recomputed `curves` as a prop).
+    const saldo = screen.getByTestId("kpi-card-saldo-devedor-value");
+    expect(saldo).not.toHaveTextContent("—");
+    expect(saldo).toHaveTextContent("R$");
+    const jaPago = screen.getByTestId("kpi-card-ja-pago-value");
+    expect(jaPago).not.toHaveTextContent("—");
+    expect(jaPago).toHaveTextContent("%");
+    expect(screen.getByTestId("tracker-curves-chart")).toBeInTheDocument();
   });
 
   it("renders 'Editar plano' as a disabled placeholder", () => {
@@ -182,6 +244,69 @@ describe("AcompanhamentoDetailPage", () => {
     expect(
       screen.getByRole("button", { name: "Editar plano" }),
     ).toBeDisabled();
+  });
+
+  // US-014: the "Simular antecipação" button on the new tab opens the
+  // non-persistent what-if simulation dialog. The simulation runs entirely in
+  // memory until the user clicks "Aplicar este lançamento", which then creates
+  // the real entry via the unified resource (`useUpsertTrackerEntry` →
+  // `POST /api/tracker/plans/:id/entries`).
+  it("opens the what-if simulation dialog from 'Simular antecipação' without persisting", () => {
+    setDetail(makePlan(), []);
+    renderPage();
+
+    expect(
+      screen.queryByRole("heading", { name: "Simular antecipação" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simular antecipação" }),
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog).getByRole("heading", { name: "Simular antecipação" }),
+    ).toBeInTheDocument();
+    // Just opening the dialog must not persist anything.
+    expect(upsertEntryMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("creates the real entry via the unified resource when the simulation is applied", async () => {
+    upsertEntryMutateAsync.mockResolvedValue({});
+    setDetail(makePlan(), []);
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Simular antecipação" }),
+    );
+
+    const dialog = screen.getByRole("dialog");
+    // Override the suggested installment with a big anticipation so the
+    // simulation has an effect to show.
+    fireEvent.change(within(dialog).getByLabelText("Valor"), {
+      target: { value: "60000" },
+    });
+    // The result preview is purely client-side — still no API call yet.
+    expect(
+      within(dialog).getByTestId("tracker-what-if-result"),
+    ).toBeInTheDocument();
+    expect(upsertEntryMutateAsync).not.toHaveBeenCalled();
+
+    // Confirm: the page's wired-up mutation creates the entry.
+    await act(async () => {
+      fireEvent.click(
+        within(dialog).getByRole("button", {
+          name: "Aplicar este lançamento",
+        }),
+      );
+    });
+
+    expect(upsertEntryMutateAsync).toHaveBeenCalledWith({
+      month_index: 1,
+      paid_amount: 60000,
+      paid_at: "2025-01-01",
+      apply_mode: "reduce_term",
+    });
   });
 
   it("deletes the plan and navigates back after confirmation", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  changeEmailTemplate,
   renderBrandedEmail,
   resetPasswordTemplate,
   verifyEmailTemplate,
@@ -47,6 +48,41 @@ describe("resetPasswordTemplate", () => {
     expect(html).toContain("Este link expira em 1 hora");
     expect(text).toContain(url);
     expect(text).toContain("— Calculadora Financeira.app");
+  });
+});
+
+describe("changeEmailTemplate", () => {
+  it("renders the branded HTML with logo, brand color, new email and action url", () => {
+    const url = `${APP_URL}/verify-email?token=change-tok`;
+    const { subject, html, text } = changeEmailTemplate({
+      url,
+      name: "Carla",
+      newEmail: "new@example.com",
+      publicAppUrl: APP_URL,
+    });
+
+    expect(subject).toBe(
+      "Confirme a alteração de email — Calculadora Financeira",
+    );
+    expect(html).toContain("/brand/email-logo.png");
+    expect(html).toContain("#B94F45");
+    expect(html).toContain(url);
+    expect(html).toContain("Olá, Carla");
+    expect(html).toContain("new@example.com");
+    expect(text).toContain(url);
+    expect(text).toContain("— Calculadora Financeira.app");
+  });
+
+  it("escapes hostile newEmail content in the HTML output", () => {
+    const url = `${APP_URL}/verify-email?token=t`;
+    const { html } = changeEmailTemplate({
+      url,
+      name: "Carla",
+      newEmail: '"><script>alert(1)</script>',
+      publicAppUrl: APP_URL,
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
   });
 });
 

@@ -20,6 +20,13 @@ vi.mock("@/lib/queries/tracker-plans", () => ({
   }),
 }));
 
+// Radix Select uses portals / pointer-capture APIs that don't work in jsdom.
+// Render a native <select> instead so fireEvent.change keeps working.
+vi.mock("@/components/ui/select", async () => {
+  const mod = await import("@/tests/select-mock");
+  return mod.selectMock;
+});
+
 // Passthrough Dialog so the form renders when `open` is true (no Radix portal).
 vi.mock("@/components/ui/dialog", () => {
   const Passthrough = ({ children }: { children?: ReactNode }) => (

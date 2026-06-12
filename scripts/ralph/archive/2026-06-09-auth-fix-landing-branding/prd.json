@@ -1,0 +1,322 @@
+{
+  "project": "Calculadora Financeira",
+  "branchName": "ralph/visual-meus-financiamentos-conta",
+  "description": "Identidade visual da Landing (contraste + faixa da logo), padronizacao dos selects, unificacao de Historico+Acompanhamento numa unica aba 'Meus Financiamentos' (modelo de dados unico, tabela editavel com recalculo das parcelas e KPIs em tempo real) e gestao de conta (logout, ver/editar conta, trocar senha, excluir conta).",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Substituir cores hardcoded da Landing pelos tokens do tema",
+      "description": "Como usuario, quero que a Landing use as cores oficiais da identidade visual para que a experiencia seja consistente entre light e dark mode.",
+      "acceptanceCriteria": [
+        "Remover `bg-[#F7EFE2]` e `bg-[#B94F45]` de `src/features/landing/pages/landing-page.tsx`",
+        "Substituir por classes/tokens do tema (`bg-background`, `bg-primary`, `text-primary-foreground`, `text-foreground`, `text-muted-foreground`) definidos em `src/index.css`",
+        "O CTA principal usa `bg-primary` e `text-primary-foreground`",
+        "Nenhuma cor hexadecimal hardcoded permanece em `landing-page.tsx`",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Corrigir contraste do texto do hero em dark mode",
+      "description": "Como usuario em dark mode, quero ler o texto inicial com contraste adequado para que a leitura nao seja prejudicada.",
+      "acceptanceCriteria": [
+        "Titulos do hero usam `text-foreground` e subtitulos usam `text-muted-foreground`",
+        "Contraste do texto principal atinge no minimo WCAG AA (4.5:1) em light e dark mode",
+        "Em dark mode nao ha texto apagado/ilegivel sobre o fundo",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Faixa horizontal de contraste atras da logo no light mode",
+      "description": "Como usuario, quero ver a logo com texto sobre uma faixa de contraste para que ela nao fique sobre fundo branco.",
+      "acceptanceCriteria": [
+        "A logo `BrandLogo` (`logo-nome.svg`, wordmark branco) e exibida sobre uma faixa horizontal com cor escura do tema (`bg-primary` ou `bg-foreground`), nunca sobre fundo branco/creme",
+        "A faixa mantem a logo legivel e usa token do tema (sem cor hardcoded)",
+        "No dark mode a faixa se adapta sem perda de contraste",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Migrar o componente Select para Radix/shadcn com tokens do tema",
+      "description": "Como usuario, quero que todos os menus suspensos tenham a aparencia da identidade visual, sem o estilo nativo do browser.",
+      "acceptanceCriteria": [
+        "Substituir o `<select>` nativo de `src/components/ui/select.tsx` por um componente baseado em `@radix-ui/react-select` no padrao shadcn (Trigger/Content/Item)",
+        "Adicionar `@radix-ui/react-select` como dependencia se ainda nao presente (justificada para padronizacao visual)",
+        "Trigger usa `bg-background`/`text-foreground`/`border-input` e foco com `ring-ring`; opcoes usam `bg-popover`/`text-popover-foreground` e fonte `font-sans`",
+        "Nao ha mais fundo azul nativo nem fonte divergente nas opcoes",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Aplicar o Select padronizado em todos os pontos do app",
+      "description": "Como usuario, quero que o seletor 'Reduzir parcela / Reduzir prazo' e qualquer outra lista suspensa sigam o mesmo padrao.",
+      "acceptanceCriteria": [
+        "Atualizar o seletor de modo em `src/features/acompanhamento/components/tracker-spreadsheet.tsx` para o novo Select",
+        "Localizar e converter todos os usos de Select/`<select>` no app para o componente padronizado",
+        "Nenhum dropdown exibe estilo nativo do browser (fundo azul / fonte diferente)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Definir modelo de dados unico e migrar dados existentes",
+      "description": "Como desenvolvedor, preciso unificar os backends de Historico e Acompanhamento num unico modelo para que exista uma so fonte de verdade.",
+      "acceptanceCriteria": [
+        "Adotar as tabelas do tracker (`tracker_plans` + `tracker_entries`) como modelo canonico",
+        "Criar migracao D1 em `migrations/` que migra `financing_scenarios`/`scenario_payments` para o modelo canonico, mapeando `paymentType`/`amortizationStrategy` para `apply_mode` (reduce_term/reduce_installment) e preservando centavos/basis points",
+        "Tabelas antigas mantidas (apenas marcadas como deprecadas) para rollback seguro nesta story",
+        "Migracao roda localmente via `bun run db:migrate:local` sem perda de dados",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Consolidar as rotas de API no modelo unico",
+      "description": "Como desenvolvedor, preciso que a API exponha um unico conjunto de rotas para os financiamentos do usuario.",
+      "acceptanceCriteria": [
+        "As rotas do recurso unificado (CRUD de financiamentos + lancamentos) operam sobre `tracker_plans`/`tracker_entries`",
+        "`src/lib/api-client.ts` aponta para as rotas unificadas",
+        "Rotas antigas de scenarios/payments redirecionam ou permanecem como shim sem quebrar clientes durante a transicao",
+        "Testes de servidor (Hono via `app.request` com D1 fake) cobrem create/list/upsert/delete do recurso unificado",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Criar rota e navegacao 'Meus Financiamentos'",
+      "description": "Como usuario logado, quero acessar uma unica aba 'Meus Financiamentos' no lugar de Historico e Acompanhamento.",
+      "acceptanceCriteria": [
+        "Adicionar rotas protegidas `/meus-financiamentos` (lista) e `/meus-financiamentos/:id` (detalhe) em `src/app/routes.tsx`",
+        "`/historico`, `/historico/:scenarioId`, `/acompanhamento`, `/acompanhamento/novo` e `/acompanhamento/:id` redirecionam para os equivalentes novos",
+        "Sidebar (`src/components/app-sidebar.tsx`) mostra um unico item 'Meus Financiamentos' (remover os dois itens antigos)",
+        "A aba so e acessivel para usuarios logados (`ProtectedRoute`)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Exibir os KPIs do financiamento na nova aba",
+      "description": "Como usuario, quero ver os KPIs macro (% pago, saldo devedor, parcelas restantes, economia vs cronograma, prazo reduzido) para acompanhar meu progresso.",
+      "acceptanceCriteria": [
+        "Cards de KPI exibem: % ja pago, saldo devedor, parcelas restantes, economia vs cronograma original, prazo reduzido (meses) e juros pagos ate agora",
+        "KPIs computados no `core/finance` reaproveitando `build-scenario-detail-kpis`/`build-tracker-kpis`/`replay-payments`, nunca dentro de componentes",
+        "Sem lancamentos, os KPIs mostram estado vazio com instrucao (ex.: 'Registre lancamentos para acompanhar o progresso')",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Exibir o grafico Previsto x Real na nova aba",
+      "description": "Como usuario, quero ver o grafico de saldo/juros Previsto x Real para visualizar o impacto das antecipacoes.",
+      "acceptanceCriteria": [
+        "Grafico Recharts compara curva Prevista (cronograma original) x Real (com pagamentos), reaproveitando `build-detail-chart-data`/`build-curves`",
+        "As series usam os tokens de cor de chart do tema (`--chart-1`..`--chart-5`)",
+        "O grafico reflete os lancamentos existentes ao carregar a pagina",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Tabela de pagamentos editavel para lancar valores pagos",
+      "description": "Como usuario, quero lancar os valores pagos diretamente numa tabela grande (formato do Acompanhamento) para registrar meus pagamentos mes a mes.",
+      "acceptanceCriteria": [
+        "A tabela exibe colunas: Mes, Vencimento, Parcela prevista, Valor pago (input), Modo (Reduzir prazo / Reduzir parcela) e saldo/efeito",
+        "O input de valor pago usa `CurrencyInput`",
+        "O seletor de Modo por linha usa o Select padronizado (US-004)",
+        "Cada lancamento e persistido no modelo unificado via api-client",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Recalcular parcelas subsequentes ao lancar um valor pago",
+      "description": "Como usuario, quero que ao lancar um valor pago diferente da parcela prevista, todas as parcelas seguintes sejam recalculadas, para que a projecao reflita a realidade.",
+      "acceptanceCriteria": [
+        "A diferenca positiva (valor pago menos parcela prevista) e tratada como amortizacao extra",
+        "O recalculo respeita o modo da linha: Reduzir prazo (mantem parcela, reduz numero de parcelas) ou Reduzir parcela (mantem prazo, reduz valor das parcelas seguintes)",
+        "Todas as parcelas subsequentes sao recalculadas (corrigir o bug atual em que a parcela prevista nao muda)",
+        "Logica de recalculo vive em `core/finance` (pura, Decimal.js) com testes unitarios para: reducao de prazo, reducao de parcela, pagamento igual a parcela (sem efeito extra) e pagamento parcial",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "KPIs e grafico atualizam em tempo real conforme os lancamentos",
+      "description": "Como usuario, quero que ao inserir valores na tabela os KPIs e o grafico se ajustem imediatamente, para ter feedback instantaneo.",
+      "acceptanceCriteria": [
+        "Ao salvar/editar um lancamento, os KPIs (US-009) e o grafico (US-010) recalculam e refletem o novo estado",
+        "Estado derivado via `useMemo`/invalidacao de query, sem duplicar valores calculados",
+        "Os valores ajustados aparecem sem recarregar a pagina",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Simular antecipacao (what-if) na nova aba",
+      "description": "Como usuario, quero simular uma antecipacao antes de registra-la, para avaliar o impacto sem comprometer os dados reais.",
+      "acceptanceCriteria": [
+        "A nova aba mantem a simulacao what-if do Acompanhamento (`tracker-what-if-dialog`/`simulate-next-payment-card`)",
+        "A simulacao mostra o efeito (economia, prazo reduzido) sem persistir ate o usuario confirmar",
+        "Confirmar a simulacao cria o lancamento real no modelo unificado",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Endpoints de servidor para gestao de conta",
+      "description": "Como desenvolvedor, preciso de endpoints para ler/atualizar dados de conta, trocar senha e excluir conta.",
+      "acceptanceCriteria": [
+        "`GET /api/account` retorna nome, e-mail e data de criacao do usuario autenticado",
+        "`PATCH /api/account` atualiza o nome; alteracao de e-mail dispara nova verificacao (o e-mail so muda apos confirmacao)",
+        "Troca de senha via Better Auth (change-password) exigindo a senha atual e revogando as demais sessoes",
+        "`DELETE /api/account` faz hard delete do usuario e de todos os dados associados (financiamentos, lancamentos, sessoes), exigindo reautenticacao",
+        "Todas as rotas usam `require-user` e validam o input",
+        "Testes de servidor cobrem sucesso e falhas (nao autenticado, senha incorreta, reautenticacao invalida)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Habilitar logout e item 'Conta' no NavUser",
+      "description": "Como usuario logado, quero sair da conta e acessar minha conta pelo menu para gerenciar meu acesso.",
+      "acceptanceCriteria": [
+        "O item 'Sair' em `src/components/nav-user.tsx` invalida a sessao e redireciona para `/login`",
+        "O item 'Conta' (hoje desabilitado) e habilitado e navega para `/conta`",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Pagina 'Minha Conta' - visualizar e editar dados pessoais",
+      "description": "Como usuario, quero ver e editar minhas informacoes pessoais numa pagina de conta.",
+      "acceptanceCriteria": [
+        "Rota protegida `/conta` exibe nome, e-mail e data de criacao do usuario",
+        "Formulario permite editar o nome com validacao e feedback de sucesso/erro, salvando via `PATCH /api/account`",
+        "Alterar o e-mail dispara o fluxo de reverificacao e informa o usuario de que a mudanca so vale apos confirmar",
+        "A UI/sessao atualiza apos salvar",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Trocar senha na pagina de conta",
+      "description": "Como usuario, quero trocar minha senha estando logado para manter minha conta segura.",
+      "acceptanceCriteria": [
+        "Secao 'Trocar senha' com campos: senha atual, nova senha e confirmar nova senha",
+        "Validacao de correspondencia/forca; erro claro quando a senha atual esta incorreta",
+        "Usa o fluxo change-password do Better Auth e revoga as demais sessoes ativas",
+        "Feedback de sucesso visivel ao usuario",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Excluir conta (hard delete com reautenticacao)",
+      "description": "Como usuario, quero excluir minha conta e todos os meus dados de forma definitiva, caso deseje encerrar o uso.",
+      "acceptanceCriteria": [
+        "Secao 'Excluir conta' com aviso claro de irreversibilidade",
+        "Dialog de confirmacao exige reautenticacao (e-mail/senha) antes de excluir",
+        "Ao confirmar, chama `DELETE /api/account` e faz hard delete de usuario + todos os dados (financiamentos, lancamentos, sessoes)",
+        "Apos excluir, a sessao e encerrada e o usuario e redirecionado para a Landing/`/login`",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Remover tabelas e rotas antigas deprecadas (cleanup da mesma release)",
+      "description": "Como desenvolvedor, preciso remover fisicamente o modelo antigo apos o cutover completo para a nova aba, evitando duplicidade de dados.",
+      "acceptanceCriteria": [
+        "Migracao D1 que remove (drop) `financing_scenarios` e `scenario_payments` apos confirmar que a migracao US-006 cobre os dados",
+        "Remover rotas/shims antigos de scenarios/payments e referencias nao usadas em `src/lib/api-client.ts`",
+        "Nenhuma referencia ao modelo antigo permanece no SPA ou no Worker (grep limpo)",
+        "Migracao roda localmente via `bun run db:migrate:local` sem erro",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { sharedAuthOptions } from "./auth-options";
 import { sendEmail } from "./email";
 import {
+  changeEmailTemplate,
   resetPasswordTemplate,
   verifyEmailTemplate,
 } from "./email-templates";
@@ -91,6 +92,22 @@ export function buildResetUrl(publicAppUrl: string, originalUrl: string): string
 }
 
 /**
+ * Rewrite Better Auth's change-email confirmation URL into the existing SPA
+ * route `/verify-email?token=...`. The email-verification handler in
+ * Better Auth distinguishes the original "verify-email" intent from the
+ * "change-email-verification" intent via the token payload, so reusing the
+ * same SPA page is correct. Pure + exported for unit testing.
+ */
+export function buildChangeEmailUrl(
+  publicAppUrl: string,
+  originalUrl: string,
+): string {
+  const base = publicAppUrl.replace(/\/+$/, "");
+  const token = getUrlParam(originalUrl, "token") ?? "";
+  return `${base}/verify-email?token=${encodeURIComponent(token)}`;
+}
+
+/**
  * Build a Better Auth instance bound to the current request's environment.
  * Created per-request because each Worker request carries its own D1 binding
  * and secret values (no module-level singletons in Cloudflare Workers).
@@ -136,6 +153,30 @@ export function createAuth(env: Env) {
           },
           env,
         );
+      },
+    },
+    user: {
+      ...sharedAuthOptions.user,
+      changeEmail: {
+        ...sharedAuthOptions.user?.changeEmail,
+        enabled: sharedAuthOptions.user?.changeEmail?.enabled ?? true,
+        sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
+          const template = changeEmailTemplate({
+            url: buildChangeEmailUrl(env.PUBLIC_APP_URL, url),
+            name: user.name,
+            newEmail,
+            publicAppUrl: env.PUBLIC_APP_URL,
+          });
+          await sendEmail(
+            {
+              to: user.email,
+              subject: template.subject,
+              html: template.html,
+              text: template.text,
+            },
+            env,
+          );
+        },
       },
     },
     ...googleSocialProvider(env),
