@@ -1,31 +1,24 @@
 import { cn } from "@/lib/utils";
 
 interface BrandLogoProps {
-  /** Classes applied to the wordmark `<img>` (typically sizing). */
+  /** Classes applied to the wrapper (typically visibility/sizing). */
   className?: string;
-  /** Classes applied to the contrast strip wrapping the wordmark. */
-  containerClassName?: string;
 }
 
-/**
- * Wordmark da marca (`logo-nome.svg`, texto branco) exibido sobre uma faixa
- * horizontal de contraste. O texto branco ficaria ilegível sobre o fundo
- * creme/branco do light mode, então a faixa usa o token `bg-primary` (vermelho
- * da marca) — que se adapta entre light/dark sem perda de contraste.
- */
-export function BrandLogo({ className, containerClassName }: BrandLogoProps) {
+export function BrandLogo({ className }: BrandLogoProps) {
   return (
-    <span
-      className={cn(
-        "bg-primary inline-flex items-center justify-center rounded-md px-3 py-2",
-        containerClassName,
-      )}
-    >
+    <span className={cn("inline-block", className)}>
+      <img
+        src="/brand/logo-nome-light.svg"
+        alt="Calculadora Financeira.app"
+        loading="eager"
+        className="h-full w-auto dark:hidden"
+      />
       <img
         src="/brand/logo-nome.svg"
         alt="Calculadora Financeira.app"
         loading="eager"
-        className={className}
+        className="hidden h-full w-auto dark:block"
       />
     </span>
   );

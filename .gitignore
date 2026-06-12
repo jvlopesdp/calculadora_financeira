@@ -40,6 +40,9 @@ coverage/
 # Bun
 bun.lockb
 
+# npm lockfile (project uses Bun — never commit this)
+package-lock.json
+
 # Cloudflare / Wrangler
 .wrangler/
 .dev.vars

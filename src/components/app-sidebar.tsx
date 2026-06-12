@@ -40,10 +40,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
               className="h-auto data-[slot=sidebar-menu-button]:!p-1.5"
             >
               <Link to="/financiamento">
-                <BrandLogo
-                  className="h-8 w-auto"
-                  containerClassName="hidden md:inline-flex"
-                />
+                <BrandLogo className="hidden h-8 w-auto md:inline-block" />
                 <BrandMark className="h-8 w-auto md:hidden" />
               </Link>
             </SidebarMenuButton>
